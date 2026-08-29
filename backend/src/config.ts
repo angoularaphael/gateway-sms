@@ -21,10 +21,12 @@ function integer(name: string, fallback: number): number {
 
 export const config = {
   nodeEnv: process.env.NODE_ENV ?? "development",
-  port: integer("API_PORT", 4000),
+  host: process.env.HOST ?? "0.0.0.0",
+  port: integer("PORT", integer("SERVER_PORT", integer("API_PORT", 4000))),
   apiUrl: process.env.API_URL ?? "http://localhost:4000",
-  frontendUrl: process.env.FRONTEND_URL ?? "http://localhost:3000",
-  corsOrigin: process.env.CORS_ORIGIN ?? process.env.FRONTEND_URL ?? "http://localhost:3000",
+  frontendUrl: process.env.FRONTEND_URL ?? process.env.API_URL ?? "http://localhost:3000",
+  corsOrigin: process.env.CORS_ORIGIN ?? process.env.API_URL ?? process.env.FRONTEND_URL ?? "http://localhost:3000",
+  frontendDir: process.env.FRONTEND_DIR ?? "",
   databaseUrl: required("DATABASE_URL", "postgresql://sms:sms@localhost:5432/sms_gateway?schema=public"),
   redisUrl: required("REDIS_URL", "redis://localhost:6379"),
   jwtSecret: required("JWT_SECRET", "dev-only-change-me"),

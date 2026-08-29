@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { Shell } from "@/components/Shell";
-import { api } from "@/lib/api";
+import { api, apiBase } from "@/lib/api";
 
 type Contact = { id: string; prenom: string; nom: string; telephone: string };
 type List = { id: string; name: string; _count: { members: number } };
@@ -65,7 +65,7 @@ export default function ContactsPage() {
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && load()}
           />
-          <a className="rounded-lg border border-[#1d3348] px-3 py-2 text-sm" href={`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000"}/api/contacts/export`}>
+          <a className="rounded-lg border border-[#1d3348] px-3 py-2 text-sm" href={`${apiBase()}/api/contacts/export`}>
             Export CSV
           </a>
         </div>

@@ -148,6 +148,19 @@ npm test
 
 Couverture : import CSV, numéros FR, doublons, désinscription, campagnes, sélection SIM, appareil hors ligne, rate limit, retries, stats.
 
+## Production Bot Hosting (sans Android Studio)
+
+1. Créer une base **Neon** ou **Supabase** (`DATABASE_URL`).
+2. Créer un Redis **Upstash** (`REDIS_URL`).
+3. Egg Node 22, **1024 Mo RAM**, un port public.
+4. Uploader `bothosting/bootstrap.js` → `/home/container/index.js`.
+5. Coller `bothosting/env.bothosting` dans `/home/container/.env` (hôte, secrets, URLs).
+6. Startup panel : `node index.js`.
+7. APK téléphone : GitHub → **Actions** → **Build Android APK** → *Run workflow* → télécharger l’artifact `sms-gateway-apk`.
+8. Sur le téléphone : autoriser sources inconnues, installer l’APK, coller l’URL publique du panel (`http://HOTE:PORT`), Device ID et clé API.
+
+Les SMS partent toujours des téléphones, pas du serveur.
+
 ## Sécurité
 
 - Mots de passe hashés (bcrypt)

@@ -1,4 +1,10 @@
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const API =
+  process.env.NEXT_PUBLIC_API_URL ??
+  (process.env.NODE_ENV === "production" ? "" : "http://localhost:4000");
+
+export function apiBase(): string {
+  return API;
+}
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
