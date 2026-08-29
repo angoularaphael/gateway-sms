@@ -64,11 +64,17 @@ export async function importCsv(content: string, listId?: string) {
     toInsert.map((c) => prisma.contact.create({ data: c })),
   );
 
-  if (listId && created.length > 0) {
-    await prisma.contactListMember.createMany({
-      data: created.map((c) => ({ listId, contactId: c.id })),
-      skipDuplicates: true,
+  if (listId) {
+    const inList = await prisma.contact.findMany({
+      where: { telephone: { in: parsed.valid.map((c) => c.telephone) } },
+      select: { id: true },
     });
+    if (inList.length > 0) {
+      await prisma.contactListMember.createMany({
+        data: inList.map((c) => ({ listId, contactId: c.id })),
+        skipDuplicates: true,
+      });
+    }
   }
 
   return {

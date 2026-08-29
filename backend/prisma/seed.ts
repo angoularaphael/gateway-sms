@@ -1,6 +1,7 @@
 import "dotenv/config";
 import bcrypt from "bcryptjs";
 import { PrismaClient } from "@prisma/client";
+import { OFFER_CAMPAIGN_MESSAGE, OFFER_CAMPAIGN_NAME } from "../src/utils/defaultCampaign.js";
 
 const prisma = new PrismaClient();
 
@@ -16,7 +17,33 @@ async function main() {
     create: { email, passwordHash, name },
   });
 
+  const list = await prisma.contactList.upsert({
+    where: { id: "seed-offre-bc" },
+    update: { name: "Offre spéciale Boxing Center" },
+    create: { id: "seed-offre-bc", name: "Offre spéciale Boxing Center" },
+  });
+
+  const existing = await prisma.campaign.findFirst({
+    where: { name: OFFER_CAMPAIGN_NAME, status: "DRAFT" },
+  });
+  if (existing) {
+    await prisma.campaign.update({
+      where: { id: existing.id },
+      data: { message: OFFER_CAMPAIGN_MESSAGE, listId: list.id },
+    });
+  } else {
+    await prisma.campaign.create({
+      data: {
+        name: OFFER_CAMPAIGN_NAME,
+        message: OFFER_CAMPAIGN_MESSAGE,
+        listId: list.id,
+        status: "DRAFT",
+      },
+    });
+  }
+
   console.log(`Admin prêt : ${email}`);
+  console.log(`Campagne prête : ${OFFER_CAMPAIGN_NAME}`);
 }
 
 main()

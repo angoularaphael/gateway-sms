@@ -45,7 +45,7 @@ export default function CampaignDetailPage() {
       <h1 className="mb-2 text-3xl font-semibold">{campaign.name}</h1>
       <p className="mb-6 text-[#8aa4b8]">{campaign.status}</p>
       <div className="mb-6 flex flex-wrap gap-2">
-        {["DRAFT", "SCHEDULED", "PAUSED"].includes(campaign.status) && (
+        {["DRAFT", "SCHEDULED", "PAUSED", "COMPLETED"].includes(campaign.status) && (
           <button className="rounded-lg bg-[#3ee0b0] px-4 py-2 text-sm font-medium text-[#07111c]" onClick={() => action("start")}>
             Lancer
           </button>

@@ -218,7 +218,7 @@ describe("campagnes et queue", () => {
   it("crée une campagne DRAFT puis autorise RUNNING", () => {
     expect(canTransition("DRAFT", "RUNNING")).toBe(true);
     expect(canTransition("DRAFT", "SCHEDULED")).toBe(true);
-    expect(canTransition("COMPLETED", "RUNNING")).toBe(false);
+    expect(canTransition("COMPLETED", "RUNNING")).toBe(true);
     expect(canTransition("CANCELLED", "RUNNING")).toBe(false);
   });
 

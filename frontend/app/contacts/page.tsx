@@ -14,13 +14,17 @@ export default function ContactsPage() {
   const [lists, setLists] = useState<List[]>([]);
   const [form, setForm] = useState({ prenom: "", nom: "", telephone: "" });
   const [listName, setListName] = useState("");
+  const [importListId, setImportListId] = useState("");
   const [message, setMessage] = useState("");
 
   async function load(q = search) {
     const data = await api<{ items: Contact[]; total: number }>(`/api/contacts?search=${encodeURIComponent(q)}`);
     setItems(data.items);
     setTotal(data.total);
-    setLists(await api<List[]>("/api/contact-lists"));
+    const nextLists = await api<List[]>("/api/contact-lists");
+    setLists(nextLists);
+    const offre = nextLists.find((l) => l.id === "seed-offre-bc" || l.name.toLowerCase().includes("boxing"));
+    if (offre) setImportListId(offre.id);
   }
 
   useEffect(() => {
@@ -37,6 +41,7 @@ export default function ContactsPage() {
   async function importCsv(file: File) {
     const body = new FormData();
     body.append("file", file);
+    if (importListId) body.append("listId", importListId);
     const result = await api<{ created: number; skippedDuplicates: number; errors: unknown[] }>("/api/contacts/import", {
       method: "POST",
       body,
@@ -81,6 +86,18 @@ export default function ContactsPage() {
         <div className="rounded-2xl border border-[#1d3348] bg-[#0e1c2b] p-4">
           <h2 className="mb-3 font-medium">Import CSV</h2>
           <p className="mb-2 text-xs text-[#8aa4b8]">Colonnes : prenom,nom,telephone</p>
+          <select
+            className="mb-2 w-full rounded-lg border border-[#1d3348] bg-[#07111c] px-3 py-2 text-sm"
+            value={importListId}
+            onChange={(e) => setImportListId(e.target.value)}
+          >
+            <option value="">Aucune liste (contacts seuls)</option>
+            {lists.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name}
+              </option>
+            ))}
+          </select>
           <input type="file" accept=".csv,text/csv" onChange={(e) => e.target.files?.[0] && importCsv(e.target.files[0])} />
           <form
             className="mt-4 flex gap-2"

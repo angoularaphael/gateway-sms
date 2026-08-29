@@ -95,10 +95,16 @@ export async function startCampaign(id: string) {
       select: { telephone: true },
     });
     const { kept } = excludeUnsubscribed(contacts, new Set(unsubRows.map((u) => u.telephone)));
+    const alreadySent = await tx.campaignRecipient.findMany({
+      where: { campaignId: id, status: { in: ["SENT", "SENDING"] } },
+      select: { phoneNumber: true },
+    });
+    const sentSet = new Set(alreadySent.map((r) => r.phoneNumber));
+    const toQueue = kept.filter((c) => !sentSet.has(c.telephone));
 
-    if (kept.length > 0) {
+    if (toQueue.length > 0) {
       await tx.campaignRecipient.createMany({
-        data: kept.map((c) => ({
+        data: toQueue.map((c) => ({
           campaignId: id,
           contactId: c.id,
           phoneNumber: c.telephone,

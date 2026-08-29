@@ -13,7 +13,7 @@ const ALLOWED: Record<CampaignLifecycle, CampaignLifecycle[]> = {
   SCHEDULED: ["RUNNING", "CANCELLED", "DRAFT"],
   RUNNING: ["PAUSED", "COMPLETED", "CANCELLED"],
   PAUSED: ["RUNNING", "CANCELLED"],
-  COMPLETED: [],
+  COMPLETED: ["RUNNING"],
   CANCELLED: [],
 };
 
