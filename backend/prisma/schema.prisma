@@ -1,0 +1,175 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum DeviceStatus {
+  ONLINE
+  OFFLINE
+}
+
+enum SimStatus {
+  READY
+  ABSENT
+  ERROR
+  UNKNOWN
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  RUNNING
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum SmsStatus {
+  QUEUED
+  SENDING
+  SENT
+  FAILED
+  CANCELLED
+}
+
+enum SmsErrorCode {
+  NO_SIM
+  DEVICE_OFFLINE
+  SMS_FAILED
+  RATE_LIMIT
+  INVALID_NUMBER
+  UNSUBSCRIBED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Device {
+  id         String       @id @default(cuid())
+  deviceId   String       @unique
+  name       String
+  status     DeviceStatus @default(OFFLINE)
+  lastSeenAt DateTime?
+  simCount   Int          @default(0)
+  appVersion String?
+  apiKeyHash String
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+  simLines   SimLine[]
+  recipients CampaignRecipient[]
+}
+
+model SimLine {
+  id            String    @id @default(cuid())
+  deviceDbId    String
+  device        Device    @relation(fields: [deviceDbId], references: [id], onDelete: Cascade)
+  slot          Int
+  phoneNumber   String?
+  status        SimStatus @default(UNKNOWN)
+  dailyLimit    Int       @default(80)
+  ratePerMinute Int       @default(4)
+  enabled       Boolean   @default(true)
+  lastUsedAt    DateTime?
+  sentToday     Int       @default(0)
+  sentTodayDate DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  recipients    CampaignRecipient[]
+
+  @@unique([deviceDbId, slot])
+}
+
+model Contact {
+  id          String              @id @default(cuid())
+  prenom      String
+  nom         String
+  telephone   String              @unique
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  listMembers ContactListMember[]
+  recipients  CampaignRecipient[]
+}
+
+model ContactList {
+  id        String              @id @default(cuid())
+  name      String
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+  members   ContactListMember[]
+  campaigns Campaign[]
+}
+
+model ContactListMember {
+  id        String      @id @default(cuid())
+  listId    String
+  contactId String
+  list      ContactList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  contact   Contact     @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  createdAt DateTime    @default(now())
+
+  @@unique([listId, contactId])
+}
+
+model Unsubscribe {
+  id        String   @id @default(cuid())
+  telephone String   @unique
+  reason    String?
+  createdAt DateTime @default(now())
+}
+
+model Campaign {
+  id          String               @id @default(cuid())
+  name        String
+  message     String
+  status      CampaignStatus       @default(DRAFT)
+  listId      String?
+  list        ContactList?         @relation(fields: [listId], references: [id], onDelete: SetNull)
+  scheduledAt DateTime?
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  recipients  CampaignRecipient[]
+}
+
+model CampaignRecipient {
+  id          String        @id @default(cuid())
+  campaignId  String
+  campaign    Campaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contactId   String?
+  contact     Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  phoneNumber String
+  message     String
+  status      SmsStatus     @default(QUEUED)
+  errorCode   SmsErrorCode?
+  errorDetail String?
+  deviceDbId  String?
+  device      Device?       @relation(fields: [deviceDbId], references: [id], onDelete: SetNull)
+  simLineId   String?
+  simLine     SimLine?      @relation(fields: [simLineId], references: [id], onDelete: SetNull)
+  attempts    Int           @default(0)
+  sentAt      DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([campaignId, status])
+  @@index([status])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  action    String
+  actor     String?
+  details   Json?
+  createdAt DateTime @default(now())
+}

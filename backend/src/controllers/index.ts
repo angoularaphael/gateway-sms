@@ -1,0 +1,171 @@
+import type { Request, Response } from "express";
+import * as authService from "../services/authService.js";
+import * as contactService from "../services/contactService.js";
+import * as unsubscribeService from "../services/unsubscribeService.js";
+import * as deviceService from "../services/deviceService.js";
+import * as campaignService from "../services/campaignService.js";
+import { prisma } from "../utils/prisma.js";
+import { markSimUsed } from "../workers/smsWorker.js";
+import { maybeCompleteCampaign } from "../services/campaignService.js";
+import { resolveJobAck } from "../websocket/gateway.js";
+
+function asyncHandler(fn: (req: Request, res: Response) => Promise<unknown>) {
+  return (req: Request, res: Response, next: (err?: unknown) => void) => {
+    fn(req, res).catch(next);
+  };
+}
+
+export const auth = {
+  login: asyncHandler(async (req, res) => {
+    const result = await authService.login(req.body.email, req.body.password);
+    res.json(result);
+  }),
+  me: asyncHandler(async (req, res) => {
+    const userId = (req as Request & { userId: string }).userId;
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, name: true },
+    });
+    res.json(user);
+  }),
+};
+
+export const contacts = {
+  list: asyncHandler(async (req, res) => {
+    const result = await contactService.listContacts({
+      search: String(req.query.search ?? "") || undefined,
+      skip: Number(req.query.skip ?? 0),
+      take: Number(req.query.take ?? 50),
+    });
+    res.json(result);
+  }),
+  create: asyncHandler(async (req, res) => {
+    res.status(201).json(await contactService.createContact(req.body));
+  }),
+  remove: asyncHandler(async (req, res) => {
+    await contactService.deleteContact(String(req.params.id));
+    res.status(204).end();
+  }),
+  importCsv: asyncHandler(async (req, res) => {
+    const file = (req as Request & { file?: Express.Multer.File }).file;
+    const content = file ? file.buffer.toString("utf8") : String(req.body.csv ?? "");
+    res.json(await contactService.importCsv(content, req.body.listId));
+  }),
+  exportCsv: asyncHandler(async (req, res) => {
+    const { items } = await contactService.listContacts({ take: 10_000 });
+    const csv = contactService.exportContactsCsv(items);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", "attachment; filename=contacts.csv");
+    res.send(csv);
+  }),
+  lists: asyncHandler(async (_req, res) => {
+    res.json(await contactService.listContactLists());
+  }),
+  createList: asyncHandler(async (req, res) => {
+    res.status(201).json(await contactService.createContactList(String(req.body.name ?? "")));
+  }),
+  addToList: asyncHandler(async (req, res) => {
+    res.json(await contactService.addContactsToList(String(req.params.id), req.body.contactIds ?? []));
+  }),
+};
+
+export const unsubscribes = {
+  create: asyncHandler(async (req, res) => {
+    res.status(201).json(await unsubscribeService.unsubscribe(req.body));
+  }),
+  list: asyncHandler(async (_req, res) => {
+    res.json(await unsubscribeService.listUnsubscribes());
+  }),
+};
+
+export const devices = {
+  list: asyncHandler(async (_req, res) => {
+    res.json(await deviceService.listDevices());
+  }),
+  register: asyncHandler(async (req, res) => {
+    res.status(201).json(await deviceService.registerDevice(req.body));
+  }),
+  heartbeat: asyncHandler(async (req, res) => {
+    res.json(await deviceService.heartbeat(String(req.params.id), req.body ?? {}));
+  }),
+  updateSim: asyncHandler(async (req, res) => {
+    res.json(await deviceService.updateSimLine(String(req.params.simId), req.body));
+  }),
+  smsResult: asyncHandler(async (req, res) => {
+    const { recipientId, success, errorCode, errorDetail } = req.body as {
+      recipientId: string;
+      success: boolean;
+      errorCode?: "NO_SIM" | "DEVICE_OFFLINE" | "SMS_FAILED" | "RATE_LIMIT" | "INVALID_NUMBER" | "UNSUBSCRIBED";
+      errorDetail?: string;
+    };
+    const recipient = await prisma.campaignRecipient.findUnique({ where: { id: recipientId } });
+    if (!recipient) {
+      res.status(404).json({ error: "Destinataire introuvable" });
+      return;
+    }
+    if (success) {
+      await prisma.campaignRecipient.update({
+        where: { id: recipientId },
+        data: { status: "SENT", sentAt: new Date(), errorCode: null, errorDetail: null },
+      });
+      if (recipient.simLineId) await markSimUsed(recipient.simLineId, new Date());
+    } else {
+      await prisma.campaignRecipient.update({
+        where: { id: recipientId },
+        data: { status: "FAILED", errorCode: errorCode ?? "SMS_FAILED", errorDetail },
+      });
+    }
+    resolveJobAck(recipientId, success);
+    await maybeCompleteCampaign(recipient.campaignId);
+    res.json({ ok: true });
+  }),
+  incomingSms: asyncHandler(async (req, res) => {
+    const { from, body } = req.body as { from: string; body: string };
+    const { isUnsubscribeKeyword } = await import("../utils/phone.js");
+    if (from && body && isUnsubscribeKeyword(body)) {
+      await unsubscribeService.unsubscribe({ telephone: from, reason: "SMS keyword" });
+    }
+    res.json({ ok: true });
+  }),
+  pendingSms: asyncHandler(async (req, res) => {
+    const device = (req as Request & { device: { deviceId: string } }).device;
+    const { pullPendingJobs } = await import("../websocket/gateway.js");
+    res.json({ jobs: pullPendingJobs(device.deviceId) });
+  }),
+};
+
+export const campaigns = {
+  list: asyncHandler(async (_req, res) => {
+    res.json(await campaignService.listCampaigns());
+  }),
+  get: asyncHandler(async (req, res) => {
+    res.json(await campaignService.getCampaign(String(req.params.id)));
+  }),
+  create: asyncHandler(async (req, res) => {
+    res.status(201).json(await campaignService.createCampaign(req.body));
+  }),
+  preview: asyncHandler(async (req, res) => {
+    res.json(await campaignService.previewCampaign(String(req.params.id)));
+  }),
+  start: asyncHandler(async (req, res) => {
+    res.json(await campaignService.startCampaign(String(req.params.id)));
+  }),
+  pause: asyncHandler(async (req, res) => {
+    res.json(await campaignService.pauseCampaign(String(req.params.id)));
+  }),
+  resume: asyncHandler(async (req, res) => {
+    res.json(await campaignService.resumeCampaign(String(req.params.id)));
+  }),
+  cancel: asyncHandler(async (req, res) => {
+    res.json(await campaignService.cancelCampaign(String(req.params.id)));
+  }),
+  stats: asyncHandler(async (req, res) => {
+    res.json(await campaignService.campaignStats(String(req.params.id)));
+  }),
+};
+
+export const dashboard = {
+  stats: asyncHandler(async (_req, res) => {
+    res.json(await campaignService.dashboardStats());
+  }),
+};

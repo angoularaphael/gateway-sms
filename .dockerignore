@@ -1,0 +1,10 @@
+node_modules
+.next
+dist
+.git
+*.log
+.env
+.env.local
+coverage
+android-gateway/.gradle
+android-gateway/build

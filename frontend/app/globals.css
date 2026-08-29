@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #07111c;
+  --card: #0e1c2b;
+  --line: #1d3348;
+  --text: #e8f1f8;
+  --muted: #8aa4b8;
+  --accent: #3ee0b0;
+  --warn: #f5b942;
+  --danger: #ff6b6b;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100%;
+}
+
+body {
+  font-family: "Segoe UI", system-ui, sans-serif;
+}

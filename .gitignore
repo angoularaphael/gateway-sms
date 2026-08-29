@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build
+dist/
+.next/
+out/
+build/
+*.tsbuildinfo
+
+# Env / secrets
+.env
+.env.local
+.env.production
+.env.*.local
+!.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.iml
+
+# Android
+android-gateway/.gradle/
+android-gateway/build/
+android-gateway/app/build/
+android-gateway/local.properties
+android-gateway/*.apk
+android-gateway/*.aab
+*.keystore
+!debug.keystore
+
+# Test / coverage
+coverage/
+.vitest/
+
+# Prisma
+backend/prisma/*.db
+backend/prisma/*.db-journal
+
+# Misc
+*.swp
+.turbo/

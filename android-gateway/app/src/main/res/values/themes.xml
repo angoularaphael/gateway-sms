@@ -1,0 +1,9 @@
+<resources>
+    <style name="Theme.SmsGateway" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">#3EE0B0</item>
+        <item name="android:statusBarColor">#07111C</item>
+        <item name="android:navigationBarColor">#07111C</item>
+        <item name="android:windowBackground">#07111C</item>
+        <item name="android:textColor">#E8F1F8</item>
+    </style>
+</resources>
