@@ -47,6 +47,9 @@ coverage/
 backend/prisma/*.db
 backend/prisma/*.db-journal
 
+# Local Postgres data (dev without Docker)
+.pgdata/
+
 # Misc
 *.swp
 .turbo/

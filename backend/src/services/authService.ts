@@ -7,7 +7,12 @@ import { config } from "../config.js";
 import { prisma } from "../utils/prisma.js";
 
 const loginSchema = z.object({
-  email: z.string().email(),
+  email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .min(3)
+    .refine((value) => /^[^\s@]+@[^\s@]+$/.test(value), "Email invalide"),
   password: z.string().min(8),
 });
 
