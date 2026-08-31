@@ -15,7 +15,26 @@ class GatewayClient(private val prefs: Prefs) {
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    private fun url(path: String) = "${prefs.serverUrl}$path"
+    fun health(): String {
+        return try {
+            val req = Request.Builder().url(url("/api/health")).get().build()
+            http.newCall(req).execute().use { res ->
+                val body = res.body?.string().orEmpty()
+                if (!res.isSuccessful) throw IllegalStateException("HTTP ${res.code}: $body")
+                body
+            }
+        } catch (e: IllegalStateException) {
+            throw e
+        } catch (e: java.net.UnknownHostException) {
+            throw IllegalStateException("Serveur introuvable. Vérifiez l’URL.")
+        } catch (e: java.net.ConnectException) {
+            throw IllegalStateException("Connexion refusée. Port 21724 bloqué ?")
+        } catch (e: java.net.SocketTimeoutException) {
+            throw IllegalStateException("Délai dépassé. Essayez en Wi‑Fi.")
+        } catch (e: java.io.IOException) {
+            throw IllegalStateException("Réseau: ${e.message}")
+        }
+    }
 
     private fun request(builder: Request.Builder): String {
         val req = builder
@@ -24,7 +43,14 @@ class GatewayClient(private val prefs: Prefs) {
             .build()
         http.newCall(req).execute().use { res ->
             val body = res.body?.string().orEmpty()
-            if (!res.isSuccessful) throw IllegalStateException("HTTP ${res.code}: $body")
+            if (!res.isSuccessful) {
+                val msg = when (res.code) {
+                    401 -> "Clé API ou Device ID incorrect"
+                    404 -> "Appareil introuvable (Device ID)"
+                    else -> "HTTP ${res.code}: $body"
+                }
+                throw IllegalStateException(msg)
+            }
             return body
         }
     }
@@ -70,5 +96,11 @@ class GatewayClient(private val prefs: Prefs) {
                 .url(url("/api/devices/${prefs.deviceId}/incoming-sms"))
                 .post(payload.toRequestBody(jsonType)),
         )
+    }
+
+    private fun url(path: String): String {
+        val base = prefs.serverUrl.trim().trimEnd('/')
+        val p = if (path.startsWith("/")) path else "/$path"
+        return "$base$p"
     }
 }

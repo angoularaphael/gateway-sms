@@ -9,22 +9,24 @@ data class SimInfo(val slot: Int, val phoneNumber: String?, val status: String, 
 
 object SimReader {
     fun read(tm: TelephonyManager, sm: SubscriptionManager?): List<SimInfo> {
-        val infos = sm?.activeSubscriptionInfoList.orEmpty()
-        if (infos.isEmpty()) {
-            return listOf(SimInfo(1, null, "ABSENT", -1), SimInfo(2, null, "ABSENT", -1))
-        }
-        return infos.map { info ->
-            val slot = info.simSlotIndex + 1
-            val number = info.number?.takeIf { it.isNotBlank() }
-            val ready = info.simSlotIndex >= 0
-            SimInfo(
-                slot = slot,
-                phoneNumber = number,
-                status = if (ready) "READY" else "UNKNOWN",
-                subscriptionId = info.subscriptionId,
-            )
-        }.ifEmpty {
-            listOf(SimInfo(1, tm.line1Number, if (tm.simState == TelephonyManager.SIM_STATE_READY) "READY" else "ABSENT", -1))
+        return try {
+            val infos = sm?.activeSubscriptionInfoList.orEmpty()
+            if (infos.isEmpty()) {
+                return listOf(SimInfo(1, null, "ABSENT", -1), SimInfo(2, null, "ABSENT", -1))
+            }
+            infos.map { info ->
+                val slot = info.simSlotIndex + 1
+                val number = info.number?.takeIf { it.isNotBlank() }
+                val ready = info.simSlotIndex >= 0
+                SimInfo(
+                    slot = slot,
+                    phoneNumber = number,
+                    status = if (ready) "READY" else "UNKNOWN",
+                    subscriptionId = info.subscriptionId,
+                )
+            }
+        } catch (_: SecurityException) {
+            listOf(SimInfo(1, null, "UNKNOWN", -1), SimInfo(2, null, "UNKNOWN", -1))
         }
     }
 

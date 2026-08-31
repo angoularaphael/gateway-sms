@@ -6,11 +6,13 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import org.json.JSONObject
 import java.time.LocalDate
 import java.util.Timer
@@ -26,11 +28,26 @@ class GatewayService : Service() {
         prefs = Prefs(this)
         client = GatewayClient(prefs)
         createChannel()
-        startForeground(1, notification("Connexion…"))
+        startFg("Connexion…")
         timer = Timer()
         timer?.scheduleAtFixedRate(object : TimerTask() {
             override fun run() = tick()
-        }, 0, 15_000)
+        }, 0, 8_000)
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        startFg(if (StatusStore.connected) "Connecté" else "Connexion…")
+        return START_STICKY
+    }
+
+    private fun startFg(text: String) {
+        val notification = notification(text)
+        ServiceCompat.startForeground(
+            this,
+            1,
+            notification,
+            if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC else 0,
+        )
     }
 
     private fun tick() {
@@ -47,18 +64,20 @@ class GatewayService : Service() {
                     @Suppress("DEPRECATION")
                     packageManager.getPackageInfo(packageName, 0).versionName
                 }
-            }.getOrNull() ?: "1.0.0"
+            }.getOrNull() ?: "1.0.1"
 
-            client.heartbeat(version ?: "1.0.0", SimReader.toJson(sims))
+            client.heartbeat(version ?: "1.0.1", SimReader.toJson(sims))
             StatusStore.connected = true
+            StatusStore.lastError = ""
             val jobs = client.pendingJobs()
             for (i in 0 until jobs.length()) {
                 handleJob(jobs.getJSONObject(i))
             }
-        } catch (_: Exception) {
+        } catch (err: Exception) {
             StatusStore.connected = false
+            StatusStore.lastError = err.message ?: err.javaClass.simpleName
         }
-        startForeground(1, notification(if (StatusStore.connected) "Connecté" else "Hors ligne"))
+        startFg(if (StatusStore.connected) "Connecté" else "Hors ligne")
     }
 
     private fun handleJob(job: JSONObject) {
@@ -102,6 +121,7 @@ class GatewayService : Service() {
 
     override fun onDestroy() {
         timer?.cancel()
+        timer = null
         super.onDestroy()
     }
 
@@ -110,5 +130,6 @@ class GatewayService : Service() {
 
 object StatusStore {
     @Volatile var connected: Boolean = false
+    @Volatile var lastError: String = ""
     @Volatile var sims: List<SimInfo> = emptyList()
 }
