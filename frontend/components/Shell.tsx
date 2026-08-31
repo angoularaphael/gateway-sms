@@ -6,6 +6,7 @@ import { clearToken, getToken } from "@/lib/api";
 import { useEffect } from "react";
 
 const NAV = [
+  { href: "/", label: "Stats" },
   { href: "/campaigns", label: "Campagnes" },
   { href: "/devices", label: "Téléphones" },
 ];
@@ -28,9 +29,13 @@ export function Shell({ children }: { children: React.ReactNode }) {
               key={item.href}
               href={item.href}
               className={`rounded-lg px-3 py-2 text-sm ${
-                path === item.href || path.startsWith(`${item.href}/`)
-                  ? "bg-[#122536] text-white"
-                  : "text-[#8aa4b8] hover:bg-[#122536] hover:text-white"
+                item.href === "/"
+                  ? path === "/"
+                    ? "bg-[#122536] text-white"
+                    : "text-[#8aa4b8] hover:bg-[#122536] hover:text-white"
+                  : path === item.href || path.startsWith(`${item.href}/`)
+                    ? "bg-[#122536] text-white"
+                    : "text-[#8aa4b8] hover:bg-[#122536] hover:text-white"
               }`}
             >
               {item.label}

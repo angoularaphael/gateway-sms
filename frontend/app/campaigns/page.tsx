@@ -12,6 +12,7 @@ type Campaign = {
   createdAt: string;
   contactsCount?: number;
   _count: { recipients: number };
+  stats?: { sent: number; failed: number; queued: number };
 };
 
 export default function CampaignsPage() {
@@ -25,6 +26,8 @@ export default function CampaignsPage() {
 
   useEffect(() => {
     load().catch((e) => setError(e.message));
+    const t = setInterval(() => load().catch(() => undefined), 5000);
+    return () => clearInterval(t);
   }, []);
 
   async function remove(id: string, name: string) {
@@ -57,7 +60,10 @@ export default function CampaignsPage() {
             <tr>
               <th className="px-4 py-3">Nom</th>
               <th className="px-4 py-3">Statut</th>
-              <th className="px-4 py-3">Destinataires</th>
+              <th className="px-4 py-3">Contacts</th>
+              <th className="px-4 py-3">Envoyés</th>
+              <th className="px-4 py-3">En attente</th>
+              <th className="px-4 py-3">Échecs</th>
               <th className="px-4 py-3">Créée</th>
               <th className="px-4 py-3"></th>
             </tr>
@@ -72,6 +78,9 @@ export default function CampaignsPage() {
                 </td>
                 <td className="px-4 py-2">{c.status}</td>
                 <td className="px-4 py-2">{c.contactsCount ?? c._count.recipients}</td>
+                <td className="px-4 py-2 text-[#3ee0b0]">{c.stats?.sent ?? 0}</td>
+                <td className="px-4 py-2">{c.stats?.queued ?? 0}</td>
+                <td className="px-4 py-2 text-[#ff6b6b]">{c.stats?.failed ?? 0}</td>
                 <td className="px-4 py-2">{new Date(c.createdAt).toLocaleString("fr-FR")}</td>
                 <td className="px-4 py-2 text-right">
                   <button

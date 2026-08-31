@@ -19,7 +19,7 @@ export default function LoginPage() {
         body: JSON.stringify({ email, password }),
       });
       setToken(result.token);
-      router.push("/campaigns");
+      router.push("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Échec de connexion");
     }

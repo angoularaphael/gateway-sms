@@ -7,16 +7,31 @@ import { enqueueSmsJobs, removeQueuedJobsForCampaign } from "../queues/smsQueue.
 import { createContact, importCsv } from "./contactService.js";
 
 export async function listCampaigns() {
-  const rows = await prisma.campaign.findMany({
-    include: {
-      list: { include: { _count: { select: { members: true } } } },
-      _count: { select: { recipients: true } },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  const [rows, groups] = await Promise.all([
+    prisma.campaign.findMany({
+      include: {
+        list: { include: { _count: { select: { members: true } } } },
+        _count: { select: { recipients: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.campaignRecipient.groupBy({
+      by: ["campaignId", "status"],
+      _count: { _all: true },
+    }),
+  ]);
+  const statsByCampaign = new Map<string, { sent: number; failed: number; queued: number }>();
+  for (const g of groups) {
+    const cur = statsByCampaign.get(g.campaignId) ?? { sent: 0, failed: 0, queued: 0 };
+    if (g.status === "SENT") cur.sent = g._count._all;
+    else if (g.status === "FAILED") cur.failed = g._count._all;
+    else if (g.status === "QUEUED" || g.status === "SENDING") cur.queued += g._count._all;
+    statsByCampaign.set(g.campaignId, cur);
+  }
   return rows.map((c) => ({
     ...c,
     contactsCount: c.list?._count.members ?? 0,
+    stats: statsByCampaign.get(c.id) ?? { sent: 0, failed: 0, queued: 0 },
   }));
 }
 

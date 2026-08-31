@@ -106,7 +106,9 @@ function CampaignDetail() {
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-3xl font-semibold">{campaign.name}</h1>
-          <p className="text-sm text-[#8aa4b8]">{contacts.length} contact{contacts.length > 1 ? "s" : ""}</p>
+          <p className="text-sm text-[#8aa4b8]">
+            {campaign.status} · {contacts.length} contact{contacts.length > 1 ? "s" : ""}
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button className="rounded-lg bg-[#3ee0b0] px-4 py-2 text-sm font-medium text-[#07111c]" onClick={() => void send()}>
@@ -130,11 +132,30 @@ function CampaignDetail() {
 
       <div className="mb-6 rounded-2xl border border-[#1d3348] bg-[#0e1c2b] p-4 text-sm whitespace-pre-wrap">{campaign.message}</div>
 
-      {(stats?.total ?? 0) > 0 && (
-        <p className="mb-6 text-sm text-[#8aa4b8]">
-          Envoyés {stats?.sent ?? 0} · En attente {stats?.queued ?? 0} · Échecs {stats?.failed ?? 0}
-        </p>
-      )}
+      <div className="mb-6 rounded-2xl border border-[#1d3348] bg-[#0e1c2b] p-5">
+        <h2 className="mb-3 font-medium">Statistiques</h2>
+        <div className="mb-3 h-3 overflow-hidden rounded-full bg-[#07111c]">
+          <div className="h-full bg-[#3ee0b0]" style={{ width: `${stats?.progress ?? 0}%` }} />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-4 text-sm">
+          <div>
+            <div className="text-[#8aa4b8]">Progression</div>
+            <div className="text-xl font-semibold">{stats?.progress ?? 0}%</div>
+          </div>
+          <div>
+            <div className="text-[#8aa4b8]">Envoyés</div>
+            <div className="text-xl font-semibold text-[#3ee0b0]">{stats?.sent ?? 0}</div>
+          </div>
+          <div>
+            <div className="text-[#8aa4b8]">En attente</div>
+            <div className="text-xl font-semibold">{stats?.queued ?? 0}</div>
+          </div>
+          <div>
+            <div className="text-[#8aa4b8]">Échecs</div>
+            <div className="text-xl font-semibold text-[#ff6b6b]">{stats?.failed ?? 0}</div>
+          </div>
+        </div>
+      </div>
 
       <div className="mb-6 grid gap-4 lg:grid-cols-2">
         <form onSubmit={addContact} className="rounded-2xl border border-[#1d3348] bg-[#0e1c2b] p-4">
