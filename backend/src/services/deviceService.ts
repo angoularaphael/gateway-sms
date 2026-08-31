@@ -18,10 +18,19 @@ const registerSchema = z.object({
     .optional(),
 });
 
+async function nextDeviceId(): Promise<string> {
+  const devices = await prisma.device.findMany({ select: { deviceId: true } });
+  let max = 0;
+  for (const d of devices) {
+    const match = /^ANDROID-(\d+)$/.exec(d.deviceId);
+    if (match) max = Math.max(max, Number.parseInt(match[1], 10));
+  }
+  return generateDeviceId(max + 1);
+}
+
 export async function registerDevice(input: unknown) {
   const data = registerSchema.parse(input ?? {});
-  const count = await prisma.device.count();
-  const deviceId = generateDeviceId(count + 1);
+  const deviceId = await nextDeviceId();
   const apiKey = generateApiKey();
   const apiKeyHash = await hashApiKey(apiKey);
 
@@ -53,6 +62,16 @@ export async function authenticateDevice(deviceId: string, apiKey: string) {
   if (!device) return null;
   const ok = await bcrypt.compare(apiKey, device.apiKeyHash);
   return ok ? device : null;
+}
+
+export async function deleteDevice(deviceId: string) {
+  const device = await prisma.device.findUnique({ where: { deviceId } });
+  if (!device) {
+    throw Object.assign(new Error("Appareil introuvable"), { status: 404 });
+  }
+  const { forgetDevice } = await import("../websocket/gateway.js");
+  forgetDevice(deviceId);
+  await prisma.device.delete({ where: { id: device.id } });
 }
 
 export async function listDevices() {

@@ -24,6 +24,7 @@ api.post("/unsubscribe", unsubscribes.create);
 
 api.get("/devices", authJwt, devices.list);
 api.post("/devices/register", authJwt, devices.register);
+api.delete("/devices/:id", authJwt, devices.remove);
 api.post("/devices/:id/heartbeat", authDevice, devices.heartbeat);
 api.post("/devices/:id/sms-result", authDevice, devices.smsResult);
 api.post("/devices/:id/incoming-sms", authDevice, devices.incomingSms);

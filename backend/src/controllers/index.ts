@@ -85,6 +85,10 @@ export const devices = {
   register: asyncHandler(async (req, res) => {
     res.status(201).json(await deviceService.registerDevice(req.body));
   }),
+  remove: asyncHandler(async (req, res) => {
+    await deviceService.deleteDevice(String(req.params.id));
+    res.status(204).end();
+  }),
   heartbeat: asyncHandler(async (req, res) => {
     res.json(await deviceService.heartbeat(String(req.params.id), req.body ?? {}));
   }),

@@ -26,6 +26,7 @@ function resolveFrontendDir(): string | null {
 
 export function createApp() {
   const app = express();
+  app.set("trust proxy", 1);
   app.use(
     helmet({
       contentSecurityPolicy: false,
@@ -45,9 +46,13 @@ export function createApp() {
     "/api",
     rateLimit({
       windowMs: 60_000,
-      limit: 120,
+      limit: 2000,
       standardHeaders: true,
       legacyHeaders: false,
+      skip: (req) => {
+        const p = req.path;
+        return p === "/health" || p.endsWith("/heartbeat") || p.endsWith("/pending-sms");
+      },
     }),
   );
   app.use("/api", api);

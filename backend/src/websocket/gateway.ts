@@ -75,3 +75,16 @@ export function pullPendingJobs(deviceId: string) {
   httpPending.set(deviceId, []);
   return jobs;
 }
+
+export function forgetDevice(deviceId: string) {
+  const ws = sockets.get(deviceId);
+  if (ws) {
+    try {
+      ws.close(1000, "deleted");
+    } catch {
+      /* ignore */
+    }
+    sockets.delete(deviceId);
+  }
+  httpPending.delete(deviceId);
+}
