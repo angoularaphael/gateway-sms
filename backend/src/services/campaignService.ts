@@ -4,21 +4,61 @@ import { excludeUnsubscribed } from "../utils/unsubscribe.js";
 import { canTransition, type CampaignLifecycle } from "../utils/campaign.js";
 import { getUnsubscribedSet } from "./unsubscribeService.js";
 import { enqueueSmsJobs, removeQueuedJobsForCampaign } from "../queues/smsQueue.js";
+import { createContact, importCsv } from "./contactService.js";
 
 export async function listCampaigns() {
-  return prisma.campaign.findMany({
+  const rows = await prisma.campaign.findMany({
     include: {
-      list: true,
+      list: { include: { _count: { select: { members: true } } } },
       _count: { select: { recipients: true } },
     },
     orderBy: { createdAt: "desc" },
   });
+  return rows.map((c) => ({
+    ...c,
+    contactsCount: c.list?._count.members ?? 0,
+  }));
 }
 
 export async function getCampaign(id: string) {
   return prisma.campaign.findUniqueOrThrow({
     where: { id },
-    include: { list: true },
+    include: {
+      list: {
+        include: {
+          members: {
+            include: { contact: true },
+            orderBy: { createdAt: "desc" },
+          },
+        },
+      },
+    },
+  });
+}
+
+export async function ensureCampaignList(campaignId: string): Promise<string> {
+  const campaign = await prisma.campaign.findUniqueOrThrow({ where: { id: campaignId } });
+  if (campaign.listId) return campaign.listId;
+  const list = await prisma.contactList.create({ data: { name: campaign.name } });
+  await prisma.campaign.update({ where: { id: campaignId }, data: { listId: list.id } });
+  return list.id;
+}
+
+export async function addCampaignContact(campaignId: string, input: unknown) {
+  const listId = await ensureCampaignList(campaignId);
+  return createContact({ ...(input as object), listId });
+}
+
+export async function importCampaignContacts(campaignId: string, csv: string) {
+  const listId = await ensureCampaignList(campaignId);
+  return importCsv(csv, listId);
+}
+
+export async function removeCampaignContact(campaignId: string, contactId: string) {
+  const campaign = await prisma.campaign.findUniqueOrThrow({ where: { id: campaignId } });
+  if (!campaign.listId) return;
+  await prisma.contactListMember.deleteMany({
+    where: { listId: campaign.listId, contactId },
   });
 }
 
@@ -26,11 +66,17 @@ export async function createCampaign(input: { name: string; message: string; lis
   if (!input.name?.trim() || !input.message?.trim()) {
     throw Object.assign(new Error("Nom et message requis"), { status: 400 });
   }
+  const list = input.listId
+    ? await prisma.contactList.findUnique({ where: { id: input.listId } })
+    : await prisma.contactList.create({ data: { name: input.name.trim() } });
+  if (!list) {
+    throw Object.assign(new Error("Liste introuvable"), { status: 400 });
+  }
   return prisma.campaign.create({
     data: {
       name: input.name.trim(),
       message: input.message,
-      listId: input.listId,
+      listId: list.id,
       scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : null,
       status: input.scheduledAt ? "SCHEDULED" : "DRAFT",
     },
@@ -183,6 +229,15 @@ export async function cancelCampaign(id: string) {
   });
   await removeQueuedJobsForCampaign(id);
   return { status: "CANCELLED" };
+}
+
+export async function deleteCampaign(id: string) {
+  const campaign = await prisma.campaign.findUnique({ where: { id } });
+  if (!campaign) {
+    throw Object.assign(new Error("Campagne introuvable"), { status: 404 });
+  }
+  await removeQueuedJobsForCampaign(id);
+  await prisma.campaign.delete({ where: { id } });
 }
 
 export async function campaignStats(id: string) {

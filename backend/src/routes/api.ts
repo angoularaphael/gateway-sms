@@ -36,10 +36,14 @@ api.get("/campaigns", authJwt, campaigns.list);
 api.post("/campaigns", authJwt, campaigns.create);
 api.get("/campaigns/:id", authJwt, campaigns.get);
 api.get("/campaigns/:id/preview", authJwt, campaigns.preview);
+api.post("/campaigns/:id/contacts", authJwt, campaigns.addContact);
+api.delete("/campaigns/:id/contacts/:contactId", authJwt, campaigns.removeContact);
+api.post("/campaigns/:id/import", authJwt, upload.single("file"), campaigns.importCsv);
 api.post("/campaigns/:id/start", authJwt, campaigns.start);
 api.post("/campaigns/:id/pause", authJwt, campaigns.pause);
 api.post("/campaigns/:id/resume", authJwt, campaigns.resume);
 api.post("/campaigns/:id/cancel", authJwt, campaigns.cancel);
+api.delete("/campaigns/:id", authJwt, campaigns.remove);
 api.get("/campaigns/:id/stats", authJwt, campaigns.stats);
 
 api.get("/dashboard", authJwt, dashboard.stats);

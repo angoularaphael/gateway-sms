@@ -152,6 +152,18 @@ export const campaigns = {
   create: asyncHandler(async (req, res) => {
     res.status(201).json(await campaignService.createCampaign(req.body));
   }),
+  addContact: asyncHandler(async (req, res) => {
+    res.status(201).json(await campaignService.addCampaignContact(String(req.params.id), req.body));
+  }),
+  importCsv: asyncHandler(async (req, res) => {
+    const file = (req as Request & { file?: Express.Multer.File }).file;
+    const content = file ? file.buffer.toString("utf8") : String(req.body.csv ?? "");
+    res.json(await campaignService.importCampaignContacts(String(req.params.id), content));
+  }),
+  removeContact: asyncHandler(async (req, res) => {
+    await campaignService.removeCampaignContact(String(req.params.id), String(req.params.contactId));
+    res.status(204).end();
+  }),
   preview: asyncHandler(async (req, res) => {
     res.json(await campaignService.previewCampaign(String(req.params.id)));
   }),
@@ -166,6 +178,10 @@ export const campaigns = {
   }),
   cancel: asyncHandler(async (req, res) => {
     res.json(await campaignService.cancelCampaign(String(req.params.id)));
+  }),
+  remove: asyncHandler(async (req, res) => {
+    await campaignService.deleteCampaign(String(req.params.id));
+    res.status(204).end();
   }),
   stats: asyncHandler(async (req, res) => {
     res.json(await campaignService.campaignStats(String(req.params.id)));
