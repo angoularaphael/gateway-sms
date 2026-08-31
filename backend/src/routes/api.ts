@@ -17,6 +17,7 @@ api.post("/contacts/import", authJwt, upload.single("file"), contacts.importCsv)
 api.get("/contacts/export", authJwt, contacts.exportCsv);
 api.get("/contact-lists", authJwt, contacts.lists);
 api.post("/contact-lists", authJwt, contacts.createList);
+api.delete("/contact-lists/:id", authJwt, contacts.removeList);
 api.post("/contact-lists/:id/members", authJwt, contacts.addToList);
 
 api.get("/unsubscribes", authJwt, unsubscribes.list);

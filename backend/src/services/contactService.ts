@@ -125,7 +125,19 @@ export async function listContactLists() {
 }
 
 export async function createContactList(name: string) {
-  return prisma.contactList.create({ data: { name } });
+  const trimmed = name.trim();
+  if (!trimmed) {
+    throw Object.assign(new Error("Nom de liste requis"), { status: 400 });
+  }
+  return prisma.contactList.create({ data: { name: trimmed } });
+}
+
+export async function deleteContactList(id: string) {
+  const list = await prisma.contactList.findUnique({ where: { id } });
+  if (!list) {
+    throw Object.assign(new Error("Liste introuvable"), { status: 404 });
+  }
+  await prisma.contactList.delete({ where: { id } });
 }
 
 export async function addContactsToList(listId: string, contactIds: string[]) {

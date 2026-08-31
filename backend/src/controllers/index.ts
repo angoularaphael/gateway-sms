@@ -64,6 +64,10 @@ export const contacts = {
   createList: asyncHandler(async (req, res) => {
     res.status(201).json(await contactService.createContactList(String(req.body.name ?? "")));
   }),
+  removeList: asyncHandler(async (req, res) => {
+    await contactService.deleteContactList(String(req.params.id));
+    res.status(204).end();
+  }),
   addToList: asyncHandler(async (req, res) => {
     res.json(await contactService.addContactsToList(String(req.params.id), req.body.contactIds ?? []));
   }),

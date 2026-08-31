@@ -132,10 +132,24 @@ export default function ContactsPage() {
             <input className="flex-1 rounded-lg border border-[#1d3348] bg-[#07111c] px-3 py-2" placeholder="Nouvelle liste" value={listName} onChange={(e) => setListName(e.target.value)} />
             <button className="rounded-lg border border-[#1d3348] px-3 py-2 text-sm">Créer</button>
           </form>
-          <ul className="mt-3 text-sm text-[#8aa4b8]">
+          <ul className="mt-3 space-y-1 text-sm text-[#8aa4b8]">
             {lists.map((l) => (
-              <li key={l.id}>
-                {l.name} — {l._count.members} contacts
+              <li key={l.id} className="flex items-center justify-between gap-2">
+                <span>
+                  {l.name || "(sans nom)"} — {l._count.members} contacts
+                </span>
+                <button
+                  className="text-[#ff6b6b]"
+                  type="button"
+                  onClick={async () => {
+                    if (!window.confirm(`Supprimer la liste « ${l.name || "sans nom"} » ?`)) return;
+                    await api(`/api/contact-lists/${l.id}`, { method: "DELETE" });
+                    if (importListId === l.id) setImportListId("");
+                    await load();
+                  }}
+                >
+                  Supprimer
+                </button>
               </li>
             ))}
           </ul>
