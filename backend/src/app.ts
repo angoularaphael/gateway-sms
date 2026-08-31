@@ -31,6 +31,7 @@ export function createApp() {
     helmet({
       contentSecurityPolicy: false,
       crossOriginEmbedderPolicy: false,
+      crossOriginOpenerPolicy: false,
     }),
   );
   const origins = config.corsOrigin.split(",").map((s) => s.trim()).filter(Boolean);

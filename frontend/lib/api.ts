@@ -1,9 +1,18 @@
-const API =
-  process.env.NEXT_PUBLIC_API_URL ??
-  (process.env.NODE_ENV === "production" ? "" : "http://localhost:4000");
+function resolveApiBase(): string {
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname;
+    if (host !== "localhost" && host !== "127.0.0.1") {
+      return "";
+    }
+  }
+  const fromEnv = process.env.NEXT_PUBLIC_API_URL?.trim().replace(/\/$/, "");
+  if (fromEnv) return fromEnv;
+  if (process.env.NODE_ENV === "production") return "";
+  return "http://localhost:4000";
+}
 
 export function apiBase(): string {
-  return API;
+  return resolveApiBase();
 }
 
 export function getToken(): string | null {
@@ -26,7 +35,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     headers.set("Content-Type", "application/json");
   }
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  const res = await fetch(`${API}${path}`, { ...init, headers });
+  const res = await fetch(`${apiBase()}${path}`, { ...init, headers });
   if (res.status === 401) {
     clearToken();
     if (typeof window !== "undefined" && !path.includes("/auth/login")) {
