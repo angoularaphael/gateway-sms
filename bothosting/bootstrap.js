@@ -3,10 +3,8 @@
  * Bot Hosting — copier ce fichier en /home/container/index.js
  * Startup panel : node index.js
  *
- * 1) charge /home/container/.env
- * 2) git clone/pull de gateway-sms
- * 3) npm install + prisma + build frontend
- * 4) lance l'API (dashboard + /api sur le même PORT)
+ * Ne compile PAS Next.js sur le panel (OOM). Le dashboard statique
+ * est dans le repo : dashboard/
  */
 "use strict";
 
@@ -23,7 +21,7 @@ const ROOT = __dirname;
 const ROOT_ENV = path.join(ROOT, ".env");
 const APP_DIR = path.join(ROOT, APP_DIR_NAME);
 const BACKEND_DIR = path.join(APP_DIR, "backend");
-const FRONTEND_DIR = path.join(APP_DIR, "frontend");
+const DASHBOARD_DIR = path.join(APP_DIR, "dashboard");
 
 function loadRootEnv() {
   if (!fs.existsSync(ROOT_ENV)) {
@@ -46,11 +44,18 @@ function loadRootEnv() {
 
 function run(cmd, cwd = ROOT) {
   console.log(`> ${cmd}`);
-  execSync(cmd, { cwd, stdio: "inherit", env: process.env, shell: true });
+  const env = {
+    ...process.env,
+    NODE_OPTIONS: process.env.NODE_OPTIONS || "--max-old-space-size=384",
+    NPM_CONFIG_UPDATE_NOTIFIER: "false",
+    NPM_CONFIG_FUND: "false",
+    NPM_CONFIG_AUDIT: "false",
+  };
+  execSync(cmd, { cwd, stdio: "inherit", env, shell: true });
 }
 
 function resolvePort() {
-  const raw = process.env.SERVER_PORT || process.env.PORT || "21819";
+  const raw = process.env.SERVER_PORT || process.env.PORT || "21724";
   const port = String(raw).trim();
   if (!/^\d+$/.test(port)) {
     console.error("[sms-gateway bootstrap] PORT / SERVER_PORT invalide");
@@ -95,7 +100,13 @@ if (fs.existsSync(ROOT_ENV)) {
   console.log("[sms-gateway bootstrap] .env copié vers backend/");
 }
 
-run("npm install", BACKEND_DIR);
+const hasModules = fs.existsSync(path.join(BACKEND_DIR, "node_modules", "express"));
+if (!hasModules) {
+  run("npm install --omit=dev --no-audit --no-fund --ignore-scripts", BACKEND_DIR);
+} else {
+  console.log("[sms-gateway bootstrap] node_modules déjà présent, npm install sauté");
+}
+
 run("npx prisma generate", BACKEND_DIR);
 run("npx prisma migrate deploy", BACKEND_DIR);
 try {
@@ -104,16 +115,16 @@ try {
   console.warn("[sms-gateway bootstrap] seed ignoré:", err.message);
 }
 
-process.env.NEXT_PUBLIC_API_URL = process.env.NEXT_PUBLIC_API_URL || "";
-run("npm install", FRONTEND_DIR);
-run("npm run build", FRONTEND_DIR);
+if (!fs.existsSync(path.join(DASHBOARD_DIR, "index.html"))) {
+  console.warn("[sms-gateway bootstrap] dashboard/index.html introuvable — API seule");
+}
 
-process.env.FRONTEND_DIR = path.join(FRONTEND_DIR, "out");
+process.env.FRONTEND_DIR = DASHBOARD_DIR;
 console.log("[sms-gateway bootstrap] démarrage API + dashboard…");
 process.chdir(BACKEND_DIR);
 require("child_process").execSync("npx tsx src/index.ts", {
   cwd: BACKEND_DIR,
   stdio: "inherit",
-  env: process.env,
+  env: { ...process.env, NODE_OPTIONS: process.env.NODE_OPTIONS || "--max-old-space-size=384" },
   shell: true,
 });

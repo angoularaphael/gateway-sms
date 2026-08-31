@@ -42,7 +42,7 @@ export default function CampaignsPage() {
             {items.map((c) => (
               <tr key={c.id} className="border-t border-[#1d3348]">
                 <td className="px-4 py-2">
-                  <Link href={`/campaigns/${c.id}`} className="text-[#3ee0b0]">
+                  <Link href={`/campaigns/detail/?id=${c.id}`} className="text-[#3ee0b0]">
                     {c.name}
                   </Link>
                 </td>

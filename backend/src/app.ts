@@ -13,8 +13,10 @@ import { logger } from "./utils/logger.js";
 function resolveFrontendDir(): string | null {
   const candidates = [
     config.frontendDir,
-    path.resolve(process.cwd(), "frontend/out"),
+    path.resolve(process.cwd(), "../dashboard"),
+    path.resolve(process.cwd(), "dashboard"),
     path.resolve(process.cwd(), "../frontend/out"),
+    path.resolve(process.cwd(), "frontend/out"),
   ].filter(Boolean);
   for (const dir of candidates) {
     if (fs.existsSync(path.join(dir, "index.html"))) return dir;

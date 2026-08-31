@@ -1,34 +1,40 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { Shell } from "@/components/Shell";
 import { api } from "@/lib/api";
+import { Suspense } from "react";
 
 type Campaign = { id: string; name: string; message: string; status: string; scheduledAt: string | null };
 type Preview = { recipients: number; unsubscribed: number; estimate: { segments: number }; preview: string };
 type Stats = { sent: number; failed: number; queued: number; cancelled: number; total: number; progress: number };
 
-export default function CampaignDetailPage() {
-  const params = useParams<{ id: string }>();
+function CampaignDetail() {
+  const search = useSearchParams();
+  const id = search.get("id") ?? "";
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState("");
 
   async function load() {
-    const c = await api<Campaign>(`/api/campaigns/${params.id}`);
+    const c = await api<Campaign>(`/api/campaigns/${id}`);
     setCampaign(c);
-    setPreview(await api<Preview>(`/api/campaigns/${params.id}/preview`));
-    setStats(await api<Stats>(`/api/campaigns/${params.id}/stats`));
+    setPreview(await api<Preview>(`/api/campaigns/${id}/preview`));
+    setStats(await api<Stats>(`/api/campaigns/${id}/stats`));
   }
 
   useEffect(() => {
+    if (!id) {
+      setError("Campagne introuvable");
+      return;
+    }
     load().catch((e) => setError(e.message));
-  }, [params.id]);
+  }, [id]);
 
   async function action(path: string) {
-    await api(`/api/campaigns/${params.id}/${path}`, { method: "POST" });
+    await api(`/api/campaigns/${id}/${path}`, { method: "POST" });
     await load();
   }
 
@@ -91,5 +97,13 @@ export default function CampaignDetailPage() {
         </div>
       </div>
     </Shell>
+  );
+}
+
+export default function CampaignDetailPage() {
+  return (
+    <Suspense fallback={<Shell><p>Chargement…</p></Shell>}>
+      <CampaignDetail />
+    </Suspense>
   );
 }

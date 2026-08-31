@@ -150,11 +150,11 @@ Couverture : import CSV, numéros FR, doublons, désinscription, campagnes, sél
 
 ## Production Bot Hosting (sans Android Studio)
 
-1. Créer une base **Neon** ou **Supabase** (`DATABASE_URL`).
+1. Créer une base **Supabase** (`DATABASE_URL`).
 2. Créer un Redis **Upstash** (`REDIS_URL`).
-3. Egg Node 22, **1024 Mo RAM**, un port public.
+3. Egg Node 22. Le panel **ne compile pas** Next.js (OOM) : le dashboard est déjà dans `dashboard/`.
 4. Uploader `bothosting/bootstrap.js` → `/home/container/index.js`.
-5. Coller `bothosting/env.bothosting` dans `/home/container/.env` (hôte, secrets, URLs).
+5. Coller `bothosting/env.local` dans `/home/container/.env`.
 6. Startup panel : `node index.js`.
 7. APK téléphone : GitHub → **Actions** → **Build Android APK** → *Run workflow* → télécharger l’artifact `sms-gateway-apk`.
 8. Sur le téléphone : autoriser sources inconnues, installer l’APK, coller l’URL publique du panel (`http://HOTE:PORT`), Device ID et clé API.

@@ -54,7 +54,7 @@ https://boutique.boxingcenter.fr/offres-speciales
         method: "POST",
         body: JSON.stringify({ name, message, listId: listId || undefined, scheduledAt: scheduledAt || undefined }),
       });
-      router.push(`/campaigns/${created.id}`);
+      router.push(`/campaigns/detail/?id=${created.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
     }
