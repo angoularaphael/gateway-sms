@@ -96,8 +96,8 @@ export function startSmsWorker() {
       } catch (err) {
         const code = (err as { code?: string }).code === "DEVICE_OFFLINE" ? "DEVICE_OFFLINE" : "SMS_FAILED";
         logger.warn({ err, recipientId: data.recipientId }, "dispatch failed");
-        await prisma.campaignRecipient.update({
-          where: { id: data.recipientId },
+        await prisma.campaignRecipient.updateMany({
+          where: { id: data.recipientId, status: { in: ["SENDING", "QUEUED"] } },
           data: { status: "QUEUED", errorCode: code },
         });
         throw err;

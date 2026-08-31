@@ -89,6 +89,8 @@ class GatewayService : Service() {
         if (recipientId.isBlank() || phone.isBlank()) return
         try {
             SmsSender.send(this, phone, message, recipientId, simSlot)
+            prefs.messagesToday = prefs.messagesToday + 1
+            client.smsResult(recipientId, true)
         } catch (e: Exception) {
             prefs.errors = prefs.errors + 1
             client.smsResult(recipientId, false, "SMS_FAILED", e.message)

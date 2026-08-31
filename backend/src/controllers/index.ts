@@ -117,7 +117,7 @@ export const devices = {
         data: { status: "SENT", sentAt: new Date(), errorCode: null, errorDetail: null },
       });
       if (recipient.simLineId) await markSimUsed(recipient.simLineId, new Date());
-    } else {
+    } else if (recipient.status !== "SENT") {
       await prisma.campaignRecipient.update({
         where: { id: recipientId },
         data: { status: "FAILED", errorCode: errorCode ?? "SMS_FAILED", errorDetail },

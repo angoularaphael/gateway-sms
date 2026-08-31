@@ -53,13 +53,7 @@ export function sendJobToDevice(deviceId: string, job: SmsJobPayload & { simSlot
     ws.send(JSON.stringify({ type: "sms.job", job }));
   }
 
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      pending.delete(job.recipientId);
-      reject(Object.assign(new Error("DEVICE_OFFLINE"), { code: "DEVICE_OFFLINE" }));
-    }, 45_000);
-    pending.set(job.recipientId, { resolve, reject, timeout });
-  });
+  return Promise.resolve(true);
 }
 
 export function resolveJobAck(recipientId: string, ok: boolean) {

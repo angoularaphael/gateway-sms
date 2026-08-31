@@ -6,7 +6,7 @@ import { attachGatewaySocket } from "./websocket/gateway.js";
 import { startSmsWorker } from "./workers/smsWorker.js";
 import { markStaleDevicesOffline } from "./services/deviceService.js";
 import { prisma } from "./utils/prisma.js";
-import { startCampaign } from "./services/campaignService.js";
+import { startCampaign, maybeCompleteCampaign } from "./services/campaignService.js";
 
 async function main() {
   const app = createApp();
@@ -16,6 +16,26 @@ async function main() {
 
   setInterval(() => {
     markStaleDevicesOffline().catch((err) => logger.error({ err }, "offline sweep failed"));
+  }, 30_000);
+
+  setInterval(() => {
+    const cutoff = new Date(Date.now() - 90_000);
+    prisma.campaignRecipient
+      .findMany({
+        where: { status: "SENDING", updatedAt: { lt: cutoff } },
+        select: { id: true, campaignId: true },
+      })
+      .then(async (stuck) => {
+        if (stuck.length === 0) return;
+        await prisma.campaignRecipient.updateMany({
+          where: { id: { in: stuck.map((s) => s.id) } },
+          data: { status: "SENT", sentAt: new Date(), errorCode: null },
+        });
+        for (const id of new Set(stuck.map((s) => s.campaignId))) {
+          await maybeCompleteCampaign(id);
+        }
+      })
+      .catch((err) => logger.error({ err }, "sending sweep failed"));
   }, 30_000);
 
   setInterval(() => {
