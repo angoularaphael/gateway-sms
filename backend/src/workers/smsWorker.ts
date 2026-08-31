@@ -33,6 +33,15 @@ export function startSmsWorker() {
     QUEUE_SMS,
     async (job, token) => {
       const data = job.data;
+      const recipient = await prisma.campaignRecipient.findUnique({ where: { id: data.recipientId } });
+      if (!recipient) return { skipped: "missing" };
+      if (recipient.status === "SENT" || recipient.status === "CANCELLED") {
+        return { skipped: recipient.status };
+      }
+      if (recipient.status === "SENDING" && job.attemptsMade > 0) {
+        return { skipped: "already-dispatched" };
+      }
+
       const campaign = await prisma.campaign.findUnique({ where: { id: data.campaignId } });
       if (!campaign || campaign.status === "CANCELLED") {
         await prisma.campaignRecipient.update({

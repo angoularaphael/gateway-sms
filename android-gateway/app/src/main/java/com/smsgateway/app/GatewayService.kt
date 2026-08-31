@@ -15,6 +15,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import org.json.JSONObject
 import java.time.LocalDate
+import java.util.Collections
 import java.util.Timer
 import java.util.TimerTask
 
@@ -22,6 +23,7 @@ class GatewayService : Service() {
     private var timer: Timer? = null
     private lateinit var prefs: Prefs
     private lateinit var client: GatewayClient
+    private val sentRecipientIds = Collections.synchronizedSet(mutableSetOf<String>())
 
     override fun onCreate() {
         super.onCreate()
@@ -87,6 +89,10 @@ class GatewayService : Service() {
         val message = nested.optString("message")
         val simSlot = nested.optInt("simSlot", 1)
         if (recipientId.isBlank() || phone.isBlank()) return
+        if (!sentRecipientIds.add(recipientId)) {
+            runCatching { client.smsResult(recipientId, true) }
+            return
+        }
         try {
             SmsSender.send(this, phone, message, recipientId, simSlot)
             prefs.messagesToday = prefs.messagesToday + 1

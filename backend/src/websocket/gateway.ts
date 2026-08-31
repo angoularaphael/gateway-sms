@@ -45,8 +45,10 @@ export function isDeviceConnected(deviceId: string): boolean {
 
 export function sendJobToDevice(deviceId: string, job: SmsJobPayload & { simSlot: number }): Promise<boolean> {
   const queued = httpPending.get(deviceId) ?? [];
-  queued.push(job);
-  httpPending.set(deviceId, queued);
+  if (!queued.some((item) => item.recipientId === job.recipientId)) {
+    queued.push(job);
+    httpPending.set(deviceId, queued);
+  }
 
   const ws = sockets.get(deviceId);
   if (ws && ws.readyState === WebSocket.OPEN) {
