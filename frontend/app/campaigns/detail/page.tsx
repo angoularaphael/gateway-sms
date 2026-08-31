@@ -31,11 +31,18 @@ function CampaignDetail() {
       return;
     }
     load().catch((e) => setError(e.message));
+    const t = setInterval(() => load().catch(() => undefined), 3000);
+    return () => clearInterval(t);
   }, [id]);
 
   async function action(path: string) {
-    await api(`/api/campaigns/${id}/${path}`, { method: "POST" });
-    await load();
+    setError("");
+    try {
+      await api(`/api/campaigns/${id}/${path}`, { method: "POST" });
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    }
   }
 
   if (!campaign) {
@@ -46,12 +53,23 @@ function CampaignDetail() {
     );
   }
 
+  const canLaunch =
+    ["DRAFT", "SCHEDULED", "PAUSED", "COMPLETED"].includes(campaign.status) ||
+    (campaign.status === "RUNNING" && (stats?.total ?? 0) === 0);
+
   return (
     <Shell>
       <h1 className="mb-2 text-3xl font-semibold">{campaign.name}</h1>
       <p className="mb-6 text-[#8aa4b8]">{campaign.status}</p>
+      {error && <p className="mb-4 text-sm text-[#ff6b6b]">{error}</p>}
+      {(preview?.recipients ?? 0) === 0 && (
+        <p className="mb-4 rounded-xl border border-[#ff6b6b]/40 bg-[#0e1c2b] p-3 text-sm text-[#ff6b6b]">
+          Aucun destinataire dans la liste. Va dans Contacts, ajoute ton numéro (liste Offre Boxing Center), puis
+          clique Lancer.
+        </p>
+      )}
       <div className="mb-6 flex flex-wrap gap-2">
-        {["DRAFT", "SCHEDULED", "PAUSED", "COMPLETED"].includes(campaign.status) && (
+        {canLaunch && (
           <button className="rounded-lg bg-[#3ee0b0] px-4 py-2 text-sm font-medium text-[#07111c]" onClick={() => action("start")}>
             Lancer
           </button>

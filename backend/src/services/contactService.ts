@@ -7,6 +7,7 @@ const createSchema = z.object({
   prenom: z.string().min(1),
   nom: z.string().min(1),
   telephone: z.string().min(6),
+  listId: z.string().min(1).optional(),
 });
 
 export async function listContacts(query: { search?: string; skip?: number; take?: number }) {
@@ -39,11 +40,28 @@ export async function createContact(input: unknown) {
   }
   const existing = await prisma.contact.findUnique({ where: { telephone: phone.normalized } });
   if (existing) {
+    if (data.listId) {
+      await prisma.contactListMember.createMany({
+        data: [{ listId: data.listId, contactId: existing.id }],
+        skipDuplicates: true,
+      });
+      return existing;
+    }
     throw Object.assign(new Error("Contact déjà existant"), { status: 409 });
   }
-  return prisma.contact.create({
+  const contact = await prisma.contact.create({
     data: { prenom: data.prenom, nom: data.nom, telephone: phone.normalized },
   });
+  if (data.listId) {
+    const list = await prisma.contactList.findUnique({ where: { id: data.listId } });
+    if (!list) {
+      throw Object.assign(new Error("Liste introuvable"), { status: 400 });
+    }
+    await prisma.contactListMember.create({
+      data: { listId: data.listId, contactId: contact.id },
+    });
+  }
+  return contact;
 }
 
 export async function deleteContact(id: string) {

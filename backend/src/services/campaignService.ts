@@ -74,17 +74,23 @@ async function transition(id: string, to: CampaignLifecycle) {
 }
 
 export async function startCampaign(id: string) {
-  const campaign = await transition(id, "RUNNING");
+  const current = await prisma.campaign.findUniqueOrThrow({ where: { id } });
+  const pending = await prisma.campaignRecipient.count({
+    where: { campaignId: id, status: { in: ["QUEUED", "SENDING"] } },
+  });
+  if (!(current.status === "RUNNING" && pending === 0)) {
+    await transition(id, "RUNNING");
+  }
 
-  const recipients = await prisma.$transaction(async (tx) => {
+  const queued = await prisma.$transaction(async (tx) => {
     await tx.campaignRecipient.deleteMany({
       where: { campaignId: id, status: { in: ["QUEUED", "FAILED"] } },
     });
 
-    const contacts = campaign.listId
+    const contacts = current.listId
       ? (
           await tx.contactList.findUniqueOrThrow({
-            where: { id: campaign.listId },
+            where: { id: current.listId },
             include: { members: { include: { contact: true } } },
           })
         ).members.map((m) => m.contact)
@@ -102,28 +108,49 @@ export async function startCampaign(id: string) {
     const sentSet = new Set(alreadySent.map((r) => r.phoneNumber));
     const toQueue = kept.filter((c) => !sentSet.has(c.telephone));
 
-    if (toQueue.length > 0) {
-      await tx.campaignRecipient.createMany({
-        data: toQueue.map((c) => ({
-          campaignId: id,
-          contactId: c.id,
-          phoneNumber: c.telephone,
-          message: interpolateMessage(campaign.message, c),
-          status: "QUEUED" as const,
-        })),
+    if (toQueue.length === 0) {
+      await tx.campaign.update({
+        where: { id },
+        data: { status: current.status === "COMPLETED" ? "COMPLETED" : "DRAFT", startedAt: null },
       });
+      return { empty: true as const, contactCount: contacts.length, recipients: [] };
     }
+
+    await tx.campaignRecipient.createMany({
+      data: toQueue.map((c) => ({
+        campaignId: id,
+        contactId: c.id,
+        phoneNumber: c.telephone,
+        message: interpolateMessage(current.message, c),
+        status: "QUEUED" as const,
+      })),
+    });
 
     await tx.campaign.update({
       where: { id },
-      data: { status: "RUNNING", startedAt: campaign.startedAt ?? new Date() },
+      data: { status: "RUNNING", startedAt: current.startedAt ?? new Date() },
     });
 
-    return tx.campaignRecipient.findMany({ where: { campaignId: id, status: "QUEUED" } });
+    return {
+      empty: false as const,
+      contactCount: contacts.length,
+      recipients: await tx.campaignRecipient.findMany({ where: { campaignId: id, status: "QUEUED" } }),
+    };
   });
 
+  if (queued.empty) {
+    throw Object.assign(
+      new Error(
+        queued.contactCount === 0
+          ? "Aucun contact dans la liste. Ajoute ton numéro dans Contacts (coche la liste Offre Boxing Center), puis relance."
+          : "Tous les contacts de cette liste ont déjà reçu le SMS, ou sont désinscrits.",
+      ),
+      { status: 400 },
+    );
+  }
+
   await enqueueSmsJobs(
-    recipients.map((r) => ({
+    queued.recipients.map((r) => ({
       recipientId: r.id,
       campaignId: r.campaignId,
       contactId: r.contactId,
@@ -132,7 +159,7 @@ export async function startCampaign(id: string) {
     })),
   );
 
-  return { queued: recipients.length };
+  return { queued: queued.recipients.length };
 }
 
 export async function pauseCampaign(id: string) {

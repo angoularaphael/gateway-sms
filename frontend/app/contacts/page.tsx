@@ -33,9 +33,18 @@ export default function ContactsPage() {
 
   async function addContact(e: FormEvent) {
     e.preventDefault();
-    await api("/api/contacts", { method: "POST", body: JSON.stringify(form) });
-    setForm({ prenom: "", nom: "", telephone: "" });
-    await load();
+    setMessage("");
+    try {
+      await api("/api/contacts", {
+        method: "POST",
+        body: JSON.stringify({ ...form, listId: importListId || undefined }),
+      });
+      setForm({ prenom: "", nom: "", telephone: "" });
+      setMessage("Contact ajouté" + (importListId ? " et mis dans la liste" : ""));
+      await load();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Erreur");
+    }
   }
 
   async function importCsv(file: File) {
@@ -81,6 +90,18 @@ export default function ContactsPage() {
             <input className="rounded-lg border border-[#1d3348] bg-[#07111c] px-3 py-2" placeholder="Nom" value={form.nom} onChange={(e) => setForm({ ...form, nom: e.target.value })} required />
             <input className="rounded-lg border border-[#1d3348] bg-[#07111c] px-3 py-2" placeholder="Téléphone" value={form.telephone} onChange={(e) => setForm({ ...form, telephone: e.target.value })} required />
           </div>
+          <select
+            className="mt-2 w-full rounded-lg border border-[#1d3348] bg-[#07111c] px-3 py-2 text-sm"
+            value={importListId}
+            onChange={(e) => setImportListId(e.target.value)}
+          >
+            <option value="">Aucune liste</option>
+            {lists.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name} — {l._count.members} contacts
+              </option>
+            ))}
+          </select>
           <button className="mt-3 rounded-lg bg-[#3ee0b0] px-4 py-2 text-sm font-medium text-[#07111c]">Ajouter</button>
         </form>
         <div className="rounded-2xl border border-[#1d3348] bg-[#0e1c2b] p-4">
