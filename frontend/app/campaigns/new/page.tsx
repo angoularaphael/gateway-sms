@@ -11,28 +11,21 @@ export default function NewCampaignPage() {
   const router = useRouter();
   const [lists, setLists] = useState<List[]>([]);
   const [name, setName] = useState("Offre Boxing Center — dernières places");
-  const [message, setMessage] = useState(`Bonjour {prenom},
+  const [message, setMessage] = useState(`Salut {prenom},
 
-DERNIERES PLACES pour l'offre Boxing Center.
+C'est David. Il reste encore quelques places pour les deux formules en cours.
 
-Il reste encore quelques places.
+29 euros les 4 semaines : sans engagement, sans preavis si tu pars, acces aux 5 salles, toutes les disciplines, tous les cours.
 
-29 € / 4 semaines
-- Sans engagement
-- Sans preavis en cas de resiliation
-- Acces aux 5 salles, toutes les disciplines et tous les cours
-
-259 € / 12 mois
-- Au lieu de 400 €
-- Paiement 4 fois sans frais
-- Acces aux 5 salles, toutes les disciplines et tous les cours
-
-Profite de ton offre avant qu'il ne soit trop tard.
+259 euros les 12 mois : au lieu de 400 euros, tu peux payer en 4 fois sans frais. Memes salles, memes cours.
 
 Tout se passe ici :
 https://boutique.boxingcenter.fr/offres-speciales
 
-29€ sans engagement, 259€ pour 12 mois`);
+29 euros sans engagement, 259 euros pour l'annee. Tant qu'il reste de la place.
+
+A plus tard,
+David de Boxing Center`);
   const [listId, setListId] = useState("");
   const [scheduledAt, setScheduledAt] = useState("");
   const [error, setError] = useState("");
