@@ -16,6 +16,7 @@ build/
 .env.production
 .env.*.local
 !.env.example
+bothosting/env.local
 
 # Logs
 logs/
