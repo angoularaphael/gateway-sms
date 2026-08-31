@@ -6,7 +6,7 @@ import { api, setToken } from "@/lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("admin@localhost");
+  const [email, setEmail] = useState("angoularaphael05@gmail.com");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 

@@ -13,9 +13,10 @@ async function main() {
 
   await prisma.user.upsert({
     where: { email },
-    update: { name },
+    update: { name, passwordHash },
     create: { email, passwordHash, name },
   });
+  await prisma.user.deleteMany({ where: { email: "admin@localhost" } });
 
   const list = await prisma.contactList.upsert({
     where: { id: "seed-offre-bc" },
