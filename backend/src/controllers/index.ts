@@ -4,6 +4,7 @@ import * as contactService from "../services/contactService.js";
 import * as unsubscribeService from "../services/unsubscribeService.js";
 import * as deviceService from "../services/deviceService.js";
 import * as campaignService from "../services/campaignService.js";
+import * as outboundService from "../services/outboundService.js";
 import { prisma } from "../utils/prisma.js";
 import { markSimUsed } from "../workers/smsWorker.js";
 import { maybeCompleteCampaign } from "../services/campaignService.js";
@@ -191,5 +192,21 @@ export const campaigns = {
 export const dashboard = {
   stats: asyncHandler(async (_req, res) => {
     res.json(await campaignService.dashboardStats());
+  }),
+};
+
+export const outbound = {
+  send: asyncHandler(async (req, res) => {
+    const telephone = String(req.body.telephone || req.body.phone || "");
+    const message = String(req.body.message || req.body.body || req.body.text || "");
+    res.status(202).json(
+      await outboundService.sendDirectMessage({
+        telephone,
+        message,
+        prenom: req.body.prenom ? String(req.body.prenom) : undefined,
+        nom: req.body.nom ? String(req.body.nom) : undefined,
+        source: req.body.source ? String(req.body.source) : undefined,
+      }),
+    );
   }),
 };

@@ -52,7 +52,7 @@ export function createApp() {
       legacyHeaders: false,
       skip: (req) => {
         const p = req.path;
-        return p === "/health" || p.endsWith("/heartbeat") || p.endsWith("/pending-sms");
+        return p === "/health" || p === "/messages/send" || p === "/send-message" || p.endsWith("/heartbeat") || p.endsWith("/pending-sms");
       },
     }),
   );

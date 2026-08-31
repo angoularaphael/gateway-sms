@@ -14,6 +14,54 @@ const GSM7_BASIC =
   "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà";
 const GSM7_EXTENDED = "^{}\\[~]|€";
 
+const GSM_FOLD: Record<string, string> = {
+  "€": "euros",
+  "‘": "'",
+  "’": "'",
+  "‚": "'",
+  "‛": "'",
+  "“": '"',
+  "”": '"',
+  "„": '"',
+  "«": '"',
+  "»": '"',
+  "—": "-",
+  "–": "-",
+  "œ": "oe",
+  "Œ": "OE",
+  ê: "e",
+  Ê: "E",
+  î: "i",
+  Î: "I",
+  ô: "o",
+  Ô: "O",
+  â: "a",
+  Â: "A",
+  ë: "e",
+  ï: "i",
+  ü: "u",
+  ÿ: "y",
+  "*": "",
+  "~": "-",
+};
+
+export function toGsmSafe(text: string): string {
+  let out = "";
+  for (const ch of String(text || "")) {
+    if (GSM_FOLD[ch] !== undefined) {
+      out += GSM_FOLD[ch];
+      continue;
+    }
+    if (GSM7_BASIC.includes(ch) || GSM7_EXTENDED.includes(ch) || ch === "\n" || ch === "\r") {
+      out += ch;
+      continue;
+    }
+    if (ch.codePointAt(0)! > 127) continue;
+    out += ch;
+  }
+  return out.replace(/[ \t]+\n/g, "\n").replace(/ {2,}/g, " ").trim();
+}
+
 function isGsm7(text: string): boolean {
   for (const ch of text) {
     if (!GSM7_BASIC.includes(ch) && !GSM7_EXTENDED.includes(ch)) {

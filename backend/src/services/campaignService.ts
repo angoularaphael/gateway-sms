@@ -277,6 +277,7 @@ export async function maybeCompleteCampaign(campaignId: string) {
   });
   if (pending === 0) {
     const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
+    if (campaign?.name === "Messages logiciels") return;
     if (campaign?.status === "RUNNING") {
       await prisma.campaign.update({
         where: { id: campaignId },

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { normalizeFrenchPhone, validatePhone, isUnsubscribeKeyword } from "../utils/phone.js";
 import { parseContactsCsv, findDuplicates } from "../utils/csv.js";
-import { interpolateMessage, estimateSms, estimateCampaignSms } from "../utils/template.js";
+import { interpolateMessage, estimateSms, estimateCampaignSms, toGsmSafe } from "../utils/template.js";
 import { excludeUnsubscribed, isUnsubscribed } from "../utils/unsubscribe.js";
 import { selectSimLine, isWithinRateLimit, sentTodayCount } from "../utils/simSelector.js";
 import { canTransition, buildSmsJob, shouldRetry } from "../utils/campaign.js";
@@ -260,6 +260,13 @@ describe("campagnes et queue", () => {
     expect(shouldRetry("SMS_FAILED", 1, 3)).toBe(true);
     expect(shouldRetry("DEVICE_OFFLINE", 3, 3)).toBe(false);
     expect(shouldRetry("RATE_LIMIT", 1, 3)).toBe(true);
+  });
+});
+
+describe("GSM SMS", () => {
+  it("retire les caractères hors GSM pour rester en 7-bit", () => {
+    expect(toGsmSafe("Salut Léa — c’est 29 €")).toBe("Salut Léa - c'est 29 euros");
+    expect(toGsmSafe("**Offre** ê")).toBe("Offre e");
   });
 });
 

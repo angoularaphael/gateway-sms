@@ -1,7 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
-import { authJwt, authDevice } from "../middleware/auth.js";
-import { auth, contacts, unsubscribes, devices, campaigns, dashboard } from "../controllers/index.js";
+import { authJwt, authJwtOrOutbound, authDevice } from "../middleware/auth.js";
+import { auth, contacts, unsubscribes, devices, campaigns, dashboard, outbound } from "../controllers/index.js";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
@@ -47,6 +47,9 @@ api.delete("/campaigns/:id", authJwt, campaigns.remove);
 api.get("/campaigns/:id/stats", authJwt, campaigns.stats);
 
 api.get("/dashboard", authJwt, dashboard.stats);
+
+api.post("/messages/send", authJwtOrOutbound, outbound.send);
+api.post("/send-message", authJwtOrOutbound, outbound.send);
 
 api.get("/health", (_req, res) => {
   res.json({ ok: true });

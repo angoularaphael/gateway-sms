@@ -1,6 +1,24 @@
+import { timingSafeEqual } from "node:crypto";
 import type { Request, Response, NextFunction } from "express";
 import { verifyJwt } from "../services/authService.js";
 import { authenticateDevice } from "../services/deviceService.js";
+import { config } from "../config.js";
+
+function secretsEqual(a: string, b: string): boolean {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  if (left.length !== right.length) return false;
+  return timingSafeEqual(left, right);
+}
+
+export function authJwtOrOutbound(req: Request, res: Response, next: NextFunction) {
+  const provided = String(req.headers["x-api-secret"] ?? "").trim();
+  if (config.outboundApiSecret && provided && secretsEqual(provided, config.outboundApiSecret)) {
+    next();
+    return;
+  }
+  authJwt(req, res, next);
+}
 
 export function authJwt(req: Request, res: Response, next: NextFunction) {
   const header = req.headers.authorization;
