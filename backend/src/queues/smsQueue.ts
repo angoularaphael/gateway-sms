@@ -24,19 +24,41 @@ export function getSmsQueue(): Queue<SmsJobPayload> {
 export async function enqueueSmsJobs(jobs: SmsJobPayload[]): Promise<void> {
   if (jobs.length === 0) return;
   const queue = getSmsQueue();
-  await queue.addBulk(
-    jobs.map((data) => ({
-      name: "send-sms",
-      data,
-      opts: {
-        attempts: config.smsJobAttempts,
-        backoff: { type: "exponential" as const, delay: config.smsJobBackoffMs },
-        removeOnComplete: 1000,
-        removeOnFail: 5000,
-        jobId: data.recipientId,
-      },
+  for (const data of jobs) {
+    const existing = await queue.getJob(data.recipientId);
+    if (existing) {
+      const state = await existing.getState();
+      if (state === "waiting" || state === "delayed" || state === "active" || state === "paused") {
+        continue;
+      }
+      await existing.remove().catch(() => undefined);
+    }
+    await queue.add("send-sms", data, {
+      attempts: Math.max(config.smsJobAttempts, 1),
+      backoff: { type: "exponential", delay: config.smsJobBackoffMs },
+      removeOnComplete: 1000,
+      removeOnFail: 5000,
+      jobId: data.recipientId,
+    });
+  }
+}
+
+export async function requeueQueuedRecipients(): Promise<number> {
+  const { prisma } = await import("../utils/prisma.js");
+  const rows = await prisma.campaignRecipient.findMany({
+    where: { status: "QUEUED", campaign: { status: "RUNNING" } },
+    take: 50,
+  });
+  await enqueueSmsJobs(
+    rows.map((r) => ({
+      recipientId: r.id,
+      campaignId: r.campaignId,
+      contactId: r.contactId,
+      phoneNumber: r.phoneNumber,
+      message: r.message,
     })),
   );
+  return rows.length;
 }
 
 export async function removeQueuedJobsForCampaign(campaignId: string): Promise<void> {

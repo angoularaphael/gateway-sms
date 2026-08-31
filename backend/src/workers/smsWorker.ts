@@ -75,6 +75,10 @@ export function startSmsWorker() {
           where: { id: data.recipientId },
           data: { status: "QUEUED", errorCode: selection.error },
         });
+        if (selection.error === "RATE_LIMIT" || selection.error === "DEVICE_OFFLINE") {
+          await job.moveToDelayed(Date.now() + (selection.error === "RATE_LIMIT" ? 20_000 : 15_000), token);
+          throw new DelayedError();
+        }
         if (!shouldRetry(selection.error, job.attemptsMade + 1, config.smsJobAttempts)) {
           await prisma.campaignRecipient.update({
             where: { id: data.recipientId },
@@ -83,7 +87,7 @@ export function startSmsWorker() {
           await maybeCompleteCampaign(data.campaignId);
           return { failed: selection.error };
         }
-        await job.moveToDelayed(Date.now() + (selection.error === "RATE_LIMIT" ? 20_000 : 10_000), token);
+        await job.moveToDelayed(Date.now() + 10_000, token);
         throw new DelayedError();
       }
 
