@@ -120,8 +120,9 @@ export default function DevicesPage() {
           Copier l’URL
         </button>
         <p className="mt-3">
-          Si le téléphone reste OFFLINE : Wi‑Fi (pas 4G), APK 1.0.3+, puis Connecter. Autorise SMS / téléphone /
-          notifications. Sur le téléphone, appuie sur <strong>Définir comme appli SMS</strong> pour éviter le popup « trop de messages ».
+          Si le téléphone reste OFFLINE : Wi‑Fi (pas 4G), APK 1.0.4+, puis Connecter. Autorise SMS / téléphone /
+          notifications. Sur Android 15, l’APK hors Play Store est bloquée : Paramètres de l’appli → ⋮ →
+          Autoriser les réglages restreints, puis « Définir comme appli SMS ».
         </p>
       </div>
 

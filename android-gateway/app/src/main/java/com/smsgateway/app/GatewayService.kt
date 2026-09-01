@@ -66,9 +66,9 @@ class GatewayService : Service() {
                     @Suppress("DEPRECATION")
                     packageManager.getPackageInfo(packageName, 0).versionName
                 }
-                    }.getOrNull() ?: "1.0.3"
+                    }.getOrNull() ?: "1.0.4"
 
-            client.heartbeat(version ?: "1.0.3", SimReader.toJson(sims))
+            client.heartbeat(version ?: "1.0.4", SimReader.toJson(sims))
             StatusStore.connected = true
             StatusStore.lastError = ""
             val jobs = client.pendingJobs()

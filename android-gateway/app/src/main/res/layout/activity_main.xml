@@ -59,6 +59,21 @@
             android:layout_marginTop="8dp"
             android:text="Définir comme appli SMS (évite le popup)" />
 
+        <Button
+            android:id="@+id/restrictedSettingsButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Paramètres de l’appli (réglages restreints)" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="Android 15 : si le choix SMS n’apparaît pas, ouvre les paramètres de l’appli → 3 points → Autoriser les réglages restreints, puis reviens."
+            android:textColor="#8AA4B8"
+            android:textSize="13sp" />
+
         <TextView
             android:id="@+id/statusText"
             android:layout_width="match_parent"
