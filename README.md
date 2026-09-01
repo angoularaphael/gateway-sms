@@ -73,7 +73,7 @@ L’app envoie un heartbeat, récupère les tâches (HTTP polling) et envoie les
 
 Chaque ligne (`SimLine`) a :
 
-- `dailyLimit` (défaut 80 / jour)
+- `dailyLimit` (défaut 600 / jour)
 - `ratePerMinute` (défaut 4 / min)
 - `enabled`
 

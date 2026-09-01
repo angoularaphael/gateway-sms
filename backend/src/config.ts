@@ -32,7 +32,7 @@ export const config = {
   jwtSecret: required("JWT_SECRET", "dev-only-change-me"),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? "7d",
   deviceOfflineAfterSeconds: integer("DEVICE_OFFLINE_AFTER_SECONDS", 90),
-  defaultDailyLimit: integer("DEFAULT_DAILY_LIMIT", 250),
+  defaultDailyLimit: integer("DEFAULT_DAILY_LIMIT", 600),
   defaultRatePerMinute: integer("DEFAULT_RATE_PER_MINUTE", 4),
   smsJobAttempts: integer("SMS_JOB_ATTEMPTS", 1),
   smsJobBackoffMs: integer("SMS_JOB_BACKOFF_MS", 60_000),
