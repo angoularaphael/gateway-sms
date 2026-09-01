@@ -40,6 +40,7 @@ api.post("/campaigns/:id/contacts", authJwt, campaigns.addContact);
 api.delete("/campaigns/:id/contacts/:contactId", authJwt, campaigns.removeContact);
 api.post("/campaigns/:id/import", authJwt, upload.single("file"), campaigns.importCsv);
 api.post("/campaigns/:id/start", authJwt, campaigns.start);
+api.post("/campaigns/:id/retry", authJwt, campaigns.retry);
 api.post("/campaigns/:id/pause", authJwt, campaigns.pause);
 api.post("/campaigns/:id/resume", authJwt, campaigns.resume);
 api.post("/campaigns/:id/cancel", authJwt, campaigns.cancel);

@@ -36,6 +36,7 @@ export async function sendDirectMessage(input: {
   prenom?: string;
   nom?: string;
   source?: string;
+  simSlot?: number;
 }) {
   const phone = validatePhone(input.telephone);
   if (!phone.ok || !phone.normalized) {
@@ -76,6 +77,7 @@ export async function sendDirectMessage(input: {
       contactId: contact.id,
       phoneNumber: phone.normalized,
       message: text,
+      preferredSim: input.simSlot === 1 || input.simSlot === 2 ? input.simSlot : undefined,
     },
   ]);
 

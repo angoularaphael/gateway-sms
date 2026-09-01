@@ -66,9 +66,9 @@ class GatewayService : Service() {
                     @Suppress("DEPRECATION")
                     packageManager.getPackageInfo(packageName, 0).versionName
                 }
-            }.getOrNull() ?: "1.0.1"
+                    }.getOrNull() ?: "1.0.3"
 
-            client.heartbeat(version ?: "1.0.1", SimReader.toJson(sims))
+            client.heartbeat(version ?: "1.0.3", SimReader.toJson(sims))
             StatusStore.connected = true
             StatusStore.lastError = ""
             val jobs = client.pendingJobs()
@@ -89,17 +89,14 @@ class GatewayService : Service() {
         val message = nested.optString("message")
         val simSlot = nested.optInt("simSlot", 1)
         if (recipientId.isBlank() || phone.isBlank()) return
-        if (!sentRecipientIds.add(recipientId)) {
-            runCatching { client.smsResult(recipientId, true) }
-            return
-        }
+        if (!sentRecipientIds.add(recipientId)) return
         try {
             SmsSender.send(this, phone, message, recipientId, simSlot)
             prefs.messagesToday = prefs.messagesToday + 1
-            client.smsResult(recipientId, true)
         } catch (e: Exception) {
+            sentRecipientIds.remove(recipientId)
             prefs.errors = prefs.errors + 1
-            client.smsResult(recipientId, false, "SMS_FAILED", e.message)
+            client.smsResult(recipientId, false, "SMS_FAILED", e.message, "sent")
         }
     }
 

@@ -75,10 +75,17 @@ class GatewayClient(private val prefs: Prefs) {
         return JSONObject(body).optJSONArray("jobs") ?: JSONArray()
     }
 
-    fun smsResult(recipientId: String, success: Boolean, errorCode: String? = null, errorDetail: String? = null) {
+    fun smsResult(
+        recipientId: String,
+        success: Boolean,
+        errorCode: String? = null,
+        errorDetail: String? = null,
+        stage: String = "sent",
+    ) {
         val payload = JSONObject()
             .put("recipientId", recipientId)
             .put("success", success)
+            .put("stage", stage)
             .put("errorCode", errorCode ?: JSONObject.NULL)
             .put("errorDetail", errorDetail ?: JSONObject.NULL)
             .toString()

@@ -12,6 +12,7 @@ type Sim = {
   enabled: boolean;
   dailyLimit: number;
   ratePerMinute: number;
+  sentToday: number;
 };
 
 type Device = {
@@ -75,6 +76,19 @@ export default function DevicesPage() {
     }
   }
 
+  async function toggleSim(sim: Sim, enabled: boolean) {
+    setError("");
+    try {
+      await api(`/api/devices/sims/${sim.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ enabled }),
+      });
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    }
+  }
+
   async function copy(text: string) {
     try {
       await navigator.clipboard.writeText(text);
@@ -106,8 +120,8 @@ export default function DevicesPage() {
           Copier l’URL
         </button>
         <p className="mt-3">
-          Si le téléphone reste OFFLINE : Wi‑Fi (pas 4G), APK 1.0.1+, puis Connecter. Autorise SMS / téléphone /
-          notifications.
+          Si le téléphone reste OFFLINE : Wi‑Fi (pas 4G), APK 1.0.3+, puis Connecter. Autorise SMS / téléphone /
+          notifications. Sur le téléphone, appuie sur <strong>Définir comme appli SMS</strong> pour éviter le popup « trop de messages ».
         </p>
       </div>
 
@@ -150,8 +164,14 @@ export default function DevicesPage() {
                 <li key={s.id} className="rounded-lg bg-[#07111c] p-3 text-sm">
                   SIM {s.slot} {s.status === "READY" && s.enabled ? "🟢" : "🔴"} {s.phoneNumber ?? ""}
                   <div className="mt-1 text-[#8aa4b8]">
-                    {s.dailyLimit}/jour · {s.ratePerMinute}/min · {s.enabled ? "activée" : "désactivée"}
+                    {s.sentToday ?? 0}/{s.dailyLimit} aujourd’hui · {s.ratePerMinute}/min · {s.enabled ? "activée" : "désactivée"}
                   </div>
+                  <button
+                    className="mt-2 rounded border border-[#1d3348] px-2 py-1 text-xs"
+                    onClick={() => void toggleSim(s, !s.enabled)}
+                  >
+                    {s.enabled ? "Couper cette SIM" : "Réactiver"}
+                  </button>
                 </li>
               ))}
             </ul>

@@ -32,6 +32,7 @@ enum SmsStatus {
   QUEUED
   SENDING
   SENT
+  DELIVERED
   FAILED
   CANCELLED
 }
@@ -128,18 +129,19 @@ model Unsubscribe {
 }
 
 model Campaign {
-  id          String               @id @default(cuid())
-  name        String
-  message     String
-  status      CampaignStatus       @default(DRAFT)
-  listId      String?
-  list        ContactList?         @relation(fields: [listId], references: [id], onDelete: SetNull)
-  scheduledAt DateTime?
-  startedAt   DateTime?
-  completedAt DateTime?
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
-  recipients  CampaignRecipient[]
+  id                String               @id @default(cuid())
+  name              String
+  message           String
+  status            CampaignStatus       @default(DRAFT)
+  listId            String?
+  list              ContactList?         @relation(fields: [listId], references: [id], onDelete: SetNull)
+  preferredSimSlot  Int?
+  scheduledAt       DateTime?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  recipients        CampaignRecipient[]
 }
 
 model CampaignRecipient {
@@ -159,6 +161,7 @@ model CampaignRecipient {
   simLine     SimLine?      @relation(fields: [simLineId], references: [id], onDelete: SetNull)
   attempts    Int           @default(0)
   sentAt      DateTime?
+  deliveredAt DateTime?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 

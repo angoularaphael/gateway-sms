@@ -12,7 +12,7 @@ type Campaign = {
   createdAt: string;
   contactsCount?: number;
   _count: { recipients: number };
-  stats?: { sent: number; failed: number; queued: number };
+  stats?: { sent: number; failed: number; queued: number; delivered?: number };
 };
 
 export default function CampaignsPage() {
@@ -62,6 +62,7 @@ export default function CampaignsPage() {
               <th className="px-4 py-3">Statut</th>
               <th className="px-4 py-3">Contacts</th>
               <th className="px-4 py-3">Envoyés</th>
+              <th className="px-4 py-3">Reçus</th>
               <th className="px-4 py-3">En attente</th>
               <th className="px-4 py-3">Échecs</th>
               <th className="px-4 py-3">Créée</th>
@@ -79,6 +80,7 @@ export default function CampaignsPage() {
                 <td className="px-4 py-2">{c.status}</td>
                 <td className="px-4 py-2">{c.contactsCount ?? c._count.recipients}</td>
                 <td className="px-4 py-2 text-[#3ee0b0]">{c.stats?.sent ?? 0}</td>
+                <td className="px-4 py-2 text-[#3ee0b0]">{c.stats?.delivered ?? 0}</td>
                 <td className="px-4 py-2">{c.stats?.queued ?? 0}</td>
                 <td className="px-4 py-2 text-[#ff6b6b]">{c.stats?.failed ?? 0}</td>
                 <td className="px-4 py-2">{new Date(c.createdAt).toLocaleString("fr-FR")}</td>

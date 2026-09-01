@@ -35,7 +35,7 @@ export function startSmsWorker() {
       const data = job.data;
       const recipient = await prisma.campaignRecipient.findUnique({ where: { id: data.recipientId } });
       if (!recipient) return { skipped: "missing" };
-      if (recipient.status === "SENT" || recipient.status === "CANCELLED") {
+      if (recipient.status === "SENT" || recipient.status === "DELIVERED" || recipient.status === "CANCELLED") {
         return { skipped: recipient.status };
       }
       if (recipient.status === "SENDING" && job.attemptsMade > 0) {

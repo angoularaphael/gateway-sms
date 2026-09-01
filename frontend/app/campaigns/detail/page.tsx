@@ -7,14 +7,37 @@ import { api } from "@/lib/api";
 import { Suspense } from "react";
 
 type Contact = { id: string; prenom: string; nom: string; telephone: string };
+type Recipient = {
+  id: string;
+  phoneNumber: string;
+  status: string;
+  sentAt: string | null;
+  deliveredAt: string | null;
+  errorDetail: string | null;
+  simLine: { slot: number; phoneNumber: string | null } | null;
+  contact: { prenom: string; nom: string } | null;
+};
 type Campaign = {
   id: string;
   name: string;
   message: string;
   status: string;
+  preferredSimSlot?: number | null;
   list: { members: Array<{ contact: Contact }> } | null;
+  recipients?: Recipient[];
 };
-type Stats = { sent: number; failed: number; queued: number; cancelled: number; total: number; progress: number };
+type Stats = {
+  sent: number;
+  failed: number;
+  queued: number;
+  cancelled: number;
+  total: number;
+  progress: number;
+  delivered?: number;
+  receivedPct?: number;
+};
+type Sim = { id: string; slot: number; phoneNumber: string | null; enabled: boolean; status: string; sentToday: number; dailyLimit: number };
+type Device = { deviceId: string; status: string; simLines: Sim[] };
 
 function CampaignDetail() {
   const search = useSearchParams();
@@ -23,6 +46,9 @@ function CampaignDetail() {
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
   const [form, setForm] = useState({ prenom: "", nom: "", telephone: "" });
+  const [simSlot, setSimSlot] = useState<string>("");
+  const [simSlotTouched, setSimSlotTouched] = useState(false);
+  const [devices, setDevices] = useState<Device[]>([]);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
 
@@ -31,6 +57,9 @@ function CampaignDetail() {
   async function load() {
     const c = await api<Campaign>(`/api/campaigns/${id}`);
     setCampaign(c);
+    if (!simSlotTouched) {
+      setSimSlot(c.preferredSimSlot ? String(c.preferredSimSlot) : "");
+    }
     setStats(await api<Stats>(`/api/campaigns/${id}/stats`));
   }
 
@@ -40,10 +69,9 @@ function CampaignDetail() {
       return;
     }
     load().catch((e) => setError(e.message));
+    api<Device[]>("/api/devices").then(setDevices).catch(() => undefined);
     const t = setInterval(() => {
-      api<Stats>(`/api/campaigns/${id}/stats`)
-        .then(setStats)
-        .catch(() => undefined);
+      load().catch(() => undefined);
     }, 4000);
     return () => clearInterval(t);
   }, [id]);
@@ -86,7 +114,24 @@ function CampaignDetail() {
   async function send() {
     setError("");
     try {
-      await api(`/api/campaigns/${id}/start`, { method: "POST" });
+      await api(`/api/campaigns/${id}/start`, {
+        method: "POST",
+        body: JSON.stringify({ preferredSimSlot: simSlot ? Number(simSlot) : null }),
+      });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur");
+    }
+  }
+
+  async function retry() {
+    setError("");
+    try {
+      const out = await api<{ queued: number }>(`/api/campaigns/${id}/retry`, {
+        method: "POST",
+        body: JSON.stringify({ preferredSimSlot: simSlot ? Number(simSlot) : null }),
+      });
+      setInfo(`${out.queued} SMS remis en file (échecs + sans accusé de réception)`);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
@@ -110,9 +155,27 @@ function CampaignDetail() {
             {campaign.status} · {contacts.length} contact{contacts.length > 1 ? "s" : ""}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            className="rounded-lg border border-[#1d3348] bg-[#07111c] px-3 py-2 text-sm"
+            value={simSlot}
+            onChange={(e) => {
+              setSimSlotTouched(true);
+              setSimSlot(e.target.value);
+            }}
+          >
+            <option value="">SIM auto</option>
+            {devices.flatMap((d) => d.simLines).map((s) => (
+              <option key={s.id} value={s.slot}>
+                SIM {s.slot} {s.phoneNumber || ""} ({s.sentToday}/{s.dailyLimit})
+              </option>
+            ))}
+          </select>
           <button className="rounded-lg bg-[#3ee0b0] px-4 py-2 text-sm font-medium text-[#07111c]" onClick={() => void send()}>
             Envoyer
+          </button>
+          <button className="rounded-lg border border-[#3ee0b0] px-4 py-2 text-sm text-[#3ee0b0]" onClick={() => void retry()}>
+            Renvoyer les non reçus
           </button>
           <button
             className="rounded-lg border border-[#ff6b6b] px-4 py-2 text-sm text-[#ff6b6b]"
@@ -137,14 +200,18 @@ function CampaignDetail() {
         <div className="mb-3 h-3 overflow-hidden rounded-full bg-[#07111c]">
           <div className="h-full bg-[#3ee0b0]" style={{ width: `${stats?.progress ?? 0}%` }} />
         </div>
-        <div className="grid gap-3 sm:grid-cols-4 text-sm">
+        <div className="grid gap-3 sm:grid-cols-5 text-sm">
           <div>
             <div className="text-[#8aa4b8]">Progression</div>
             <div className="text-xl font-semibold">{stats?.progress ?? 0}%</div>
           </div>
           <div>
-            <div className="text-[#8aa4b8]">Envoyés</div>
+            <div className="text-[#8aa4b8]">Envoyés (téléphone)</div>
             <div className="text-xl font-semibold text-[#3ee0b0]">{stats?.sent ?? 0}</div>
+          </div>
+          <div>
+            <div className="text-[#8aa4b8]">Reçus (accusé)</div>
+            <div className="text-xl font-semibold text-[#3ee0b0]">{stats?.delivered ?? 0}</div>
           </div>
           <div>
             <div className="text-[#8aa4b8]">En attente</div>
@@ -155,6 +222,9 @@ function CampaignDetail() {
             <div className="text-xl font-semibold text-[#ff6b6b]">{stats?.failed ?? 0}</div>
           </div>
         </div>
+        <p className="mt-3 text-xs text-[#8aa4b8]">
+          « Reçus » = l’opérateur a confirmé la livraison. Si le quota SIM est saturé, le SMS peut être « envoyé » sans être reçu : utilise Renvoyer les non reçus, sur l’autre SIM.
+        </p>
       </div>
 
       <div className="mb-6 grid gap-4 lg:grid-cols-2">
@@ -207,6 +277,36 @@ function CampaignDetail() {
           </tbody>
         </table>
       </div>
+
+      {(campaign.recipients || []).length > 0 && (
+        <div className="mb-6 overflow-x-auto rounded-2xl border border-[#1d3348]">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-[#0e1c2b] text-[#8aa4b8]">
+              <tr>
+                <th className="px-4 py-3">Destinataire</th>
+                <th className="px-4 py-3">Téléphone</th>
+                <th className="px-4 py-3">Statut</th>
+                <th className="px-4 py-3">SIM</th>
+                <th className="px-4 py-3">Reçu</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(campaign.recipients || []).map((r) => (
+                <tr key={r.id} className="border-t border-[#1d3348]">
+                  <td className="px-4 py-2">{[r.contact?.prenom, r.contact?.nom].filter(Boolean).join(" ") || "—"}</td>
+                  <td className="px-4 py-2">{r.phoneNumber}</td>
+                  <td className="px-4 py-2">
+                    {r.status === "DELIVERED" ? "Reçu" : r.status === "SENT" ? "Envoyé, pas d’accusé" : r.status}
+                    {r.errorDetail ? ` · ${r.errorDetail}` : ""}
+                  </td>
+                  <td className="px-4 py-2">{r.simLine ? `SIM ${r.simLine.slot}` : "—"}</td>
+                  <td className="px-4 py-2">{r.deliveredAt ? new Date(r.deliveredAt).toLocaleString("fr-FR") : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </Shell>
   );
 }

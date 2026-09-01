@@ -1,12 +1,14 @@
 package com.smsgateway.app
 
 import android.Manifest
+import android.app.role.RoleManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Telephony
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import android.widget.Button
@@ -37,6 +39,7 @@ class MainActivity : AppCompatActivity() {
         val deviceId = findViewById<EditText>(R.id.deviceId)
         val apiKey = findViewById<EditText>(R.id.apiKey)
         val connect = findViewById<Button>(R.id.connectButton)
+        val defaultSms = findViewById<Button>(R.id.defaultSmsButton)
 
         serverUrl.setText(prefs.serverUrl)
         deviceId.setText(prefs.deviceId)
@@ -72,6 +75,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        defaultSms.setOnClickListener { requestDefaultSmsApp() }
         requestPermissionsThenStart(false)
     }
 
@@ -85,11 +89,33 @@ class MainActivity : AppCompatActivity() {
         super.onPause()
     }
 
+    private fun isDefaultSmsApp(): Boolean {
+        return packageName == Telephony.Sms.getDefaultSmsPackage(this)
+    }
+
+    private fun requestDefaultSmsApp() {
+        if (isDefaultSmsApp()) {
+            Toast.makeText(this, "Déjà l’appli SMS par défaut", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (Build.VERSION.SDK_INT >= 29) {
+            val rm = getSystemService(RoleManager::class.java)
+            if (rm != null && rm.isRoleAvailable(RoleManager.ROLE_SMS) && !rm.isRoleHeld(RoleManager.ROLE_SMS)) {
+                startActivityForResult(rm.createRequestRoleIntent(RoleManager.ROLE_SMS), 99)
+                return
+            }
+        }
+        val intent = Intent(Telephony.Sms.Intents.ACTION_CHANGE_DEFAULT)
+        intent.putExtra(Telephony.Sms.Intents.EXTRA_PACKAGE_NAME, packageName)
+        startActivity(intent)
+    }
+
     private fun requestPermissionsThenStart(forceRestart: Boolean) {
         val needed = mutableListOf(
             Manifest.permission.SEND_SMS,
             Manifest.permission.RECEIVE_SMS,
             Manifest.permission.READ_PHONE_STATE,
+            Manifest.permission.READ_SMS,
         )
         if (Build.VERSION.SDK_INT >= 33) needed.add(Manifest.permission.POST_NOTIFICATIONS)
         val missing = needed.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
@@ -121,12 +147,15 @@ class MainActivity : AppCompatActivity() {
         val sim2 = sims.firstOrNull { it.slot == 2 }
         fun dot(sim: SimInfo?) = if (sim?.status == "READY") "🟢 Ready" else "🔴 ${sim?.status ?: "ABSENT"}"
         val errorLine = if (StatusStore.lastError.isBlank()) "" else "\n\nDernière erreur:\n${StatusStore.lastError}"
+        val defaultLine = if (isDefaultSmsApp()) "Applis SMS par défaut : oui (pas de popup quota)" else "Applis SMS par défaut : non — appuie sur le bouton ci-dessus"
         findViewById<TextView>(R.id.statusText).text = """
             Device:
             ${prefs.deviceId.ifBlank { "—" }}
 
             Connection:
             ${if (StatusStore.connected) "🟢 Connected" else "🔴 Disconnected"}
+
+            $defaultLine
 
             SIM 1:
             ${dot(sim1)}

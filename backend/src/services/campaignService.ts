@@ -20,10 +20,11 @@ export async function listCampaigns() {
       _count: { _all: true },
     }),
   ]);
-  const statsByCampaign = new Map<string, { sent: number; failed: number; queued: number }>();
+  const statsByCampaign = new Map<string, { sent: number; failed: number; queued: number; delivered: number }>();
   for (const g of groups) {
-    const cur = statsByCampaign.get(g.campaignId) ?? { sent: 0, failed: 0, queued: 0 };
-    if (g.status === "SENT") cur.sent = g._count._all;
+    const cur = statsByCampaign.get(g.campaignId) ?? { sent: 0, failed: 0, queued: 0, delivered: 0 };
+    if (g.status === "SENT" || g.status === "DELIVERED") cur.sent += g._count._all;
+    if (g.status === "DELIVERED") cur.delivered = g._count._all;
     else if (g.status === "FAILED") cur.failed = g._count._all;
     else if (g.status === "QUEUED" || g.status === "SENDING") cur.queued += g._count._all;
     statsByCampaign.set(g.campaignId, cur);
@@ -31,7 +32,7 @@ export async function listCampaigns() {
   return rows.map((c) => ({
     ...c,
     contactsCount: c.list?._count.members ?? 0,
-    stats: statsByCampaign.get(c.id) ?? { sent: 0, failed: 0, queued: 0 },
+    stats: statsByCampaign.get(c.id) ?? { sent: 0, failed: 0, queued: 0, delivered: 0 },
   }));
 }
 
@@ -46,6 +47,11 @@ export async function getCampaign(id: string) {
             orderBy: { createdAt: "desc" },
           },
         },
+      },
+      recipients: {
+        include: { simLine: true, contact: true },
+        orderBy: { createdAt: "desc" },
+        take: 400,
       },
     },
   });
@@ -77,7 +83,13 @@ export async function removeCampaignContact(campaignId: string, contactId: strin
   });
 }
 
-export async function createCampaign(input: { name: string; message: string; listId?: string; scheduledAt?: string }) {
+export async function createCampaign(input: {
+  name: string;
+  message: string;
+  listId?: string;
+  scheduledAt?: string;
+  preferredSimSlot?: number | null;
+}) {
   if (!input.name?.trim() || !input.message?.trim()) {
     throw Object.assign(new Error("Nom et message requis"), { status: 400 });
   }
@@ -87,11 +99,13 @@ export async function createCampaign(input: { name: string; message: string; lis
   if (!list) {
     throw Object.assign(new Error("Liste introuvable"), { status: 400 });
   }
+  const slot = input.preferredSimSlot === 1 || input.preferredSimSlot === 2 ? input.preferredSimSlot : null;
   return prisma.campaign.create({
     data: {
       name: input.name.trim(),
       message: input.message,
       listId: list.id,
+      preferredSimSlot: slot,
       scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : null,
       status: input.scheduledAt ? "SCHEDULED" : "DRAFT",
     },
@@ -134,8 +148,17 @@ async function transition(id: string, to: CampaignLifecycle) {
   return campaign;
 }
 
-export async function startCampaign(id: string) {
+export async function startCampaign(id: string, opts: { preferredSimSlot?: number | null } = {}) {
   const current = await prisma.campaign.findUniqueOrThrow({ where: { id } });
+  const slot =
+    opts.preferredSimSlot === 1 || opts.preferredSimSlot === 2
+      ? opts.preferredSimSlot
+      : opts.preferredSimSlot === 0
+        ? null
+        : current.preferredSimSlot;
+  if (slot !== current.preferredSimSlot) {
+    await prisma.campaign.update({ where: { id }, data: { preferredSimSlot: slot } });
+  }
   const pending = await prisma.campaignRecipient.count({
     where: { campaignId: id, status: { in: ["QUEUED", "SENDING"] } },
   });
@@ -163,7 +186,7 @@ export async function startCampaign(id: string) {
     });
     const { kept } = excludeUnsubscribed(contacts, new Set(unsubRows.map((u) => u.telephone)));
     const alreadySent = await tx.campaignRecipient.findMany({
-      where: { campaignId: id, status: "SENT" },
+      where: { campaignId: id, status: { in: ["SENT", "DELIVERED"] } },
       select: { phoneNumber: true },
     });
     const sentSet = new Set(alreadySent.map((r) => r.phoneNumber));
@@ -217,10 +240,55 @@ export async function startCampaign(id: string) {
       contactId: r.contactId,
       phoneNumber: r.phoneNumber,
       message: r.message,
+      preferredSim: slot ?? undefined,
     })),
   );
 
-  return { queued: queued.recipients.length };
+  return { queued: queued.recipients.length, preferredSimSlot: slot ?? null };
+}
+
+export async function retryUnconfirmed(id: string, opts: { preferredSimSlot?: number | null } = {}) {
+  const campaign = await prisma.campaign.findUniqueOrThrow({ where: { id } });
+  const slot =
+    opts.preferredSimSlot === 1 || opts.preferredSimSlot === 2
+      ? opts.preferredSimSlot
+      : opts.preferredSimSlot === 0
+        ? null
+        : campaign.preferredSimSlot;
+  if (slot !== campaign.preferredSimSlot) {
+    await prisma.campaign.update({ where: { id }, data: { preferredSimSlot: slot } });
+  }
+  if (campaign.status === "PAUSED" || campaign.status === "CANCELLED") {
+    await prisma.campaign.update({ where: { id }, data: { status: "RUNNING" } });
+  }
+
+  const rows = await prisma.campaignRecipient.findMany({
+    where: {
+      campaignId: id,
+      OR: [{ status: "FAILED" }, { status: "QUEUED" }, { status: "SENDING" }, { status: "SENT", deliveredAt: null }],
+    },
+  });
+  if (!rows.length) {
+    throw Object.assign(new Error("Aucun SMS à renvoyer (échecs ou sans accusé de réception)."), { status: 400 });
+  }
+
+  await prisma.campaignRecipient.updateMany({
+    where: { id: { in: rows.map((r) => r.id) } },
+    data: { status: "QUEUED", errorCode: null, errorDetail: null, sentAt: null, deliveredAt: null },
+  });
+
+  await enqueueSmsJobs(
+    rows.map((r) => ({
+      recipientId: r.id,
+      campaignId: r.campaignId,
+      contactId: r.contactId,
+      phoneNumber: r.phoneNumber,
+      message: r.message,
+      preferredSim: slot ?? undefined,
+    })),
+  );
+
+  return { queued: rows.length, preferredSimSlot: slot ?? null };
 }
 
 export async function pauseCampaign(id: string) {
@@ -262,13 +330,24 @@ export async function campaignStats(id: string) {
     _count: { _all: true },
   });
   const counts = Object.fromEntries(groups.map((g) => [g.status, g._count._all])) as Record<string, number>;
-  const sent = counts.SENT ?? 0;
+  const sentPhone = (counts.SENT ?? 0) + (counts.DELIVERED ?? 0);
+  const delivered = counts.DELIVERED ?? 0;
   const failed = counts.FAILED ?? 0;
   const queued = (counts.QUEUED ?? 0) + (counts.SENDING ?? 0);
   const cancelled = counts.CANCELLED ?? 0;
-  const total = sent + failed + queued + cancelled;
-  const progress = total === 0 ? 0 : Math.round((sent / total) * 100);
-  return { sent, failed, queued, cancelled, total, progress };
+  const total = sentPhone + failed + queued + cancelled;
+  const progress = total === 0 ? 0 : Math.round((sentPhone / total) * 100);
+  const receivedPct = sentPhone === 0 ? 0 : Math.round((delivered / sentPhone) * 100);
+  return {
+    sent: sentPhone,
+    delivered,
+    failed,
+    queued,
+    cancelled,
+    total,
+    progress,
+    receivedPct,
+  };
 }
 
 export async function maybeCompleteCampaign(campaignId: string) {
@@ -291,7 +370,7 @@ export async function dashboardStats() {
   const [contacts, campaigns, sent, failed, devices, running] = await Promise.all([
     prisma.contact.count(),
     prisma.campaign.count(),
-    prisma.campaignRecipient.count({ where: { status: "SENT" } }),
+    prisma.campaignRecipient.count({ where: { status: { in: ["SENT", "DELIVERED"] } } }),
     prisma.campaignRecipient.count({ where: { status: "FAILED" } }),
     prisma.device.findMany({ include: { simLines: true } }),
     prisma.campaign.findFirst({

@@ -101,24 +101,52 @@ export const devices = {
     res.json(await deviceService.updateSimLine(String(req.params.simId), req.body));
   }),
   smsResult: asyncHandler(async (req, res) => {
-    const { recipientId, success, errorCode, errorDetail } = req.body as {
+    const { recipientId, success, errorCode, errorDetail, stage } = req.body as {
       recipientId: string;
       success: boolean;
       errorCode?: "NO_SIM" | "DEVICE_OFFLINE" | "SMS_FAILED" | "RATE_LIMIT" | "INVALID_NUMBER" | "UNSUBSCRIBED";
       errorDetail?: string;
+      stage?: "sent" | "delivered";
     };
     const recipient = await prisma.campaignRecipient.findUnique({ where: { id: recipientId } });
     if (!recipient) {
       res.status(404).json({ error: "Destinataire introuvable" });
       return;
     }
-    if (success) {
+    const kind = stage === "delivered" ? "delivered" : "sent";
+    if (success && kind === "delivered") {
       await prisma.campaignRecipient.update({
         where: { id: recipientId },
-        data: { status: "SENT", sentAt: new Date(), errorCode: null, errorDetail: null },
+        data: {
+          status: "DELIVERED",
+          deliveredAt: new Date(),
+          sentAt: recipient.sentAt ?? new Date(),
+          errorCode: null,
+          errorDetail: null,
+        },
       });
-      if (recipient.simLineId) await markSimUsed(recipient.simLineId, new Date());
-    } else if (recipient.status !== "SENT") {
+    } else if (success) {
+      if (recipient.status !== "DELIVERED") {
+        await prisma.campaignRecipient.update({
+          where: { id: recipientId },
+          data: { status: "SENT", sentAt: recipient.sentAt ?? new Date(), errorCode: null, errorDetail: null },
+        });
+        if (recipient.simLineId && recipient.status !== "SENT") {
+          await markSimUsed(recipient.simLineId, new Date());
+        }
+      }
+    } else if (kind === "delivered") {
+      if (recipient.status !== "DELIVERED") {
+        await prisma.campaignRecipient.update({
+          where: { id: recipientId },
+          data: {
+            status: "FAILED",
+            errorCode: errorCode ?? "SMS_FAILED",
+            errorDetail: errorDetail || "non reçu (accusé réseau)",
+          },
+        });
+      }
+    } else if (recipient.status !== "SENT" && recipient.status !== "DELIVERED") {
       await prisma.campaignRecipient.update({
         where: { id: recipientId },
         data: { status: "FAILED", errorCode: errorCode ?? "SMS_FAILED", errorDetail },
@@ -169,7 +197,20 @@ export const campaigns = {
     res.json(await campaignService.previewCampaign(String(req.params.id)));
   }),
   start: asyncHandler(async (req, res) => {
-    res.json(await campaignService.startCampaign(String(req.params.id)));
+    const slot = req.body?.preferredSimSlot ?? req.body?.simSlot;
+    res.json(
+      await campaignService.startCampaign(String(req.params.id), {
+        preferredSimSlot: slot === undefined ? undefined : slot === null || slot === "" ? 0 : Number(slot),
+      }),
+    );
+  }),
+  retry: asyncHandler(async (req, res) => {
+    const slot = req.body?.preferredSimSlot ?? req.body?.simSlot;
+    res.json(
+      await campaignService.retryUnconfirmed(String(req.params.id), {
+        preferredSimSlot: slot === undefined ? undefined : slot === null || slot === "" ? 0 : Number(slot),
+      }),
+    );
   }),
   pause: asyncHandler(async (req, res) => {
     res.json(await campaignService.pauseCampaign(String(req.params.id)));
@@ -206,6 +247,7 @@ export const outbound = {
         prenom: req.body.prenom ? String(req.body.prenom) : undefined,
         nom: req.body.nom ? String(req.body.nom) : undefined,
         source: req.body.source ? String(req.body.source) : undefined,
+        simSlot: req.body.simSlot != null ? Number(req.body.simSlot) : undefined,
       }),
     );
   }),

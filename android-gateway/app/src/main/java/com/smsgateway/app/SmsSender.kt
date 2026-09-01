@@ -8,7 +8,9 @@ import android.telephony.SubscriptionManager
 
 object SmsSender {
     const val ACTION_SENT = "com.smsgateway.app.SMS_SENT"
+    const val ACTION_DELIVERED = "com.smsgateway.app.SMS_DELIVERED"
     const val EXTRA_RECIPIENT = "recipientId"
+    const val EXTRA_STAGE = "stage"
 
     fun send(context: Context, phone: String, message: String, recipientId: String, simSlot: Int) {
         val sm = context.getSystemService(SubscriptionManager::class.java)
@@ -20,19 +22,33 @@ object SmsSender {
             context.getSystemService(SmsManager::class.java) ?: SmsManager.getDefault()
         }
 
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         val sent = PendingIntent.getBroadcast(
             context,
             recipientId.hashCode(),
-            Intent(ACTION_SENT).setPackage(context.packageName).putExtra(EXTRA_RECIPIENT, recipientId),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            Intent(ACTION_SENT)
+                .setPackage(context.packageName)
+                .putExtra(EXTRA_RECIPIENT, recipientId)
+                .putExtra(EXTRA_STAGE, "sent"),
+            flags,
+        )
+        val delivered = PendingIntent.getBroadcast(
+            context,
+            recipientId.hashCode() + 1,
+            Intent(ACTION_DELIVERED)
+                .setPackage(context.packageName)
+                .putExtra(EXTRA_RECIPIENT, recipientId)
+                .putExtra(EXTRA_STAGE, "delivered"),
+            flags,
         )
 
         val parts = smsManager.divideMessage(message)
         if (parts.size == 1) {
-            smsManager.sendTextMessage(phone, null, message, sent, null)
+            smsManager.sendTextMessage(phone, null, message, sent, delivered)
         } else {
-            val sentIntents = ArrayList<PendingIntent>(parts.map { sent })
-            smsManager.sendMultipartTextMessage(phone, null, parts, sentIntents, null)
+            val sentIntents = ArrayList(parts.map { sent })
+            val deliveredIntents = ArrayList(parts.map { delivered })
+            smsManager.sendMultipartTextMessage(phone, null, parts, sentIntents, deliveredIntents)
         }
     }
 }
