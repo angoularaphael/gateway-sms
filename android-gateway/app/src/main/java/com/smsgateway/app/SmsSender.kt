@@ -12,7 +12,16 @@ object SmsSender {
     const val EXTRA_RECIPIENT = "recipientId"
     const val EXTRA_STAGE = "stage"
 
+    fun toNationalFr(phone: String): String {
+        val digits = phone.filter { it.isDigit() }
+        if (digits.startsWith("33") && digits.length == 11) {
+            return "0${digits.substring(2)}"
+        }
+        return phone
+    }
+
     fun send(context: Context, phone: String, message: String, recipientId: String, simSlot: Int) {
+        val dest = toNationalFr(phone)
         val sm = context.getSystemService(SubscriptionManager::class.java)
         val infos = sm?.activeSubscriptionInfoList.orEmpty()
         val match = infos.firstOrNull { it.simSlotIndex + 1 == simSlot } ?: infos.firstOrNull()
@@ -22,7 +31,7 @@ object SmsSender {
             context.getSystemService(SmsManager::class.java) ?: SmsManager.getDefault()
         }
 
-        val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
         val sent = PendingIntent.getBroadcast(
             context,
             recipientId.hashCode(),
@@ -44,11 +53,11 @@ object SmsSender {
 
         val parts = smsManager.divideMessage(message)
         if (parts.size == 1) {
-            smsManager.sendTextMessage(phone, null, message, sent, delivered)
+            smsManager.sendTextMessage(dest, null, message, sent, delivered)
         } else {
             val sentIntents = ArrayList(parts.map { sent })
             val deliveredIntents = ArrayList(parts.map { delivered })
-            smsManager.sendMultipartTextMessage(phone, null, parts, sentIntents, deliveredIntents)
+            smsManager.sendMultipartTextMessage(dest, null, parts, sentIntents, deliveredIntents)
         }
     }
 }
