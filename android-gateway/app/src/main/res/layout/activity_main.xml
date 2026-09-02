@@ -64,13 +64,13 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Paramètres de l’appli (réglages restreints)" />
+            android:text="Parametres de l&apos;appli (reglages restreints)" />
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
-            android:text="Android 15 : si le choix SMS n’apparaît pas, ouvre les paramètres de l’appli → 3 points → Autoriser les réglages restreints, puis reviens."
+            android:text="Android 15 : si le choix SMS n&apos;apparait pas, ouvre les parametres de l&apos;appli, 3 points, Autoriser les reglages restreints, puis reviens."
             android:textColor="#8AA4B8"
             android:textSize="13sp" />
 

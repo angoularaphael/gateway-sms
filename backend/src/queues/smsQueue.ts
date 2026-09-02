@@ -44,10 +44,41 @@ export async function enqueueSmsJobs(jobs: SmsJobPayload[]): Promise<void> {
 }
 
 export async function requeueQueuedRecipients(): Promise<number> {
+  return requeueStuckRecipients({ take: 50, queuedOnly: true });
+}
+
+export async function requeueStuckRecipients(
+  opts: { take?: number; queuedOnly?: boolean } = {},
+): Promise<number> {
+  const take = Math.max(1, opts.take ?? 120);
   const { prisma } = await import("../utils/prisma.js");
   const rows = await prisma.campaignRecipient.findMany({
-    where: { status: "QUEUED", campaign: { status: "RUNNING" } },
-    take: 50,
+    where: opts.queuedOnly
+      ? { status: "QUEUED" }
+      : {
+          OR: [
+            { status: "QUEUED" },
+            { status: "SENDING" },
+            {
+              status: "FAILED",
+              errorCode: { in: ["SMS_FAILED", "DEVICE_OFFLINE", "RATE_LIMIT", "NO_SIM"] },
+              attempts: { lt: 10 },
+            },
+          ],
+        },
+    take,
+    orderBy: { createdAt: "asc" },
+  });
+  if (rows.length === 0) return 0;
+
+  const campaignIds = [...new Set(rows.map((r) => r.campaignId))];
+  await prisma.campaign.updateMany({
+    where: { id: { in: campaignIds }, status: { in: ["COMPLETED", "DRAFT"] } },
+    data: { status: "RUNNING", completedAt: null },
+  });
+  await prisma.campaignRecipient.updateMany({
+    where: { id: { in: rows.map((r) => r.id) } },
+    data: { status: "QUEUED", errorCode: null, errorDetail: null },
   });
   await enqueueSmsJobs(
     rows.map((r) => ({

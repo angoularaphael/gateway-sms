@@ -22,10 +22,7 @@ jobs:
           gradle-version: "8.9"
       - name: Assemble debug APK
         working-directory: android-gateway
-        run: |
-          gradle wrapper --gradle-version 8.9
-          chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+        run: gradle assembleDebug --no-daemon --stacktrace
       - uses: actions/upload-artifact@v4
         with:
           name: sms-gateway-apk

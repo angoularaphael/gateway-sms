@@ -4,7 +4,7 @@ import { parseContactsCsv, findDuplicates } from "../utils/csv.js";
 import { interpolateMessage, estimateSms, estimateCampaignSms, toGsmSafe } from "../utils/template.js";
 import { excludeUnsubscribed, isUnsubscribed } from "../utils/unsubscribe.js";
 import { selectSimLine, isWithinRateLimit, sentTodayCount } from "../utils/simSelector.js";
-import { canTransition, buildSmsJob, shouldRetry } from "../utils/campaign.js";
+import { canTransition, buildSmsJob, shouldRetry, isRetryableStuckRecipient } from "../utils/campaign.js";
 import type { SelectableSim } from "../types.js";
 
 function sim(overrides: Partial<SelectableSim> = {}): SelectableSim {
@@ -260,6 +260,16 @@ describe("campagnes et queue", () => {
     expect(shouldRetry("SMS_FAILED", 1, 3)).toBe(true);
     expect(shouldRetry("DEVICE_OFFLINE", 3, 3)).toBe(false);
     expect(shouldRetry("RATE_LIMIT", 1, 3)).toBe(true);
+  });
+
+  it("reprend les SMS coincés en file ou en échec radio, pas les envoyés", () => {
+    expect(isRetryableStuckRecipient("QUEUED")).toBe(true);
+    expect(isRetryableStuckRecipient("SENDING")).toBe(true);
+    expect(isRetryableStuckRecipient("FAILED", "SMS_FAILED")).toBe(true);
+    expect(isRetryableStuckRecipient("FAILED", "DEVICE_OFFLINE")).toBe(true);
+    expect(isRetryableStuckRecipient("FAILED", "UNSUBSCRIBED")).toBe(false);
+    expect(isRetryableStuckRecipient("SENT")).toBe(false);
+    expect(isRetryableStuckRecipient("DELIVERED")).toBe(false);
   });
 });
 

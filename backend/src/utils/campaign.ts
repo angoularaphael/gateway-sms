@@ -45,3 +45,10 @@ export function shouldRetry(errorCode: string | undefined, attempts: number, max
   const noRetry = new Set(["UNSUBSCRIBED", "INVALID_NUMBER", "NO_SIM"]);
   return !noRetry.has(errorCode);
 }
+
+const STUCK_RETRY_ERRORS = new Set(["SMS_FAILED", "DEVICE_OFFLINE", "RATE_LIMIT", "NO_SIM"]);
+
+export function isRetryableStuckRecipient(status: string, errorCode?: string | null): boolean {
+  if (status === "QUEUED" || status === "SENDING") return true;
+  return status === "FAILED" && STUCK_RETRY_ERRORS.has(errorCode ?? "");
+}

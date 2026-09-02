@@ -19,6 +19,15 @@ async function main() {
   }, 30_000);
 
   setInterval(() => {
+    import("./queues/smsQueue.js")
+      .then(({ requeueStuckRecipients }) => requeueStuckRecipients({ take: 120 }))
+      .then((n) => {
+        if (n > 0) logger.info({ n }, "stuck SMS requeued");
+      })
+      .catch((err) => logger.error({ err }, "stuck sms sweep failed"));
+  }, 30_000);
+
+  setInterval(() => {
     const cutoff = new Date(Date.now() - 120_000);
     prisma.campaignRecipient
       .findMany({

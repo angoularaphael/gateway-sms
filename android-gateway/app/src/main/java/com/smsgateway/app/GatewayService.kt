@@ -58,11 +58,7 @@ class GatewayService : Service() {
 
     private fun fgsType(): Int {
         if (Build.VERSION.SDK_INT < 29) return 0
-        var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-        if (Build.VERSION.SDK_INT >= 34) {
-            type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING
-        }
-        return type
+        return ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
     }
 
     private fun startFg(text: String) {
