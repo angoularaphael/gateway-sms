@@ -6,7 +6,7 @@ import { attachGatewaySocket } from "./websocket/gateway.js";
 import { startSmsWorker } from "./workers/smsWorker.js";
 import { markStaleDevicesOffline } from "./services/deviceService.js";
 import { prisma } from "./utils/prisma.js";
-import { startCampaign, maybeCompleteCampaign } from "./services/campaignService.js";
+import { startCampaign } from "./services/campaignService.js";
 
 async function main() {
   const app = createApp();
@@ -19,21 +19,33 @@ async function main() {
   }, 30_000);
 
   setInterval(() => {
-    const cutoff = new Date(Date.now() - 90_000);
+    const cutoff = new Date(Date.now() - 120_000);
     prisma.campaignRecipient
       .findMany({
         where: { status: "SENDING", updatedAt: { lt: cutoff } },
-        select: { id: true, campaignId: true },
+        include: { simLine: true },
       })
       .then(async (stuck) => {
         if (stuck.length === 0) return;
         await prisma.campaignRecipient.updateMany({
           where: { id: { in: stuck.map((s) => s.id) } },
-          data: { status: "SENT", sentAt: new Date(), errorCode: null },
+          data: {
+            status: "QUEUED",
+            errorCode: "SMS_FAILED",
+            errorDetail: "envoi bloqué, nouvelle tentative",
+          },
         });
-        for (const id of new Set(stuck.map((s) => s.campaignId))) {
-          await maybeCompleteCampaign(id);
-        }
+        const { enqueueSmsJobs } = await import("./queues/smsQueue.js");
+        await enqueueSmsJobs(
+          stuck.map((r) => ({
+            recipientId: r.id,
+            campaignId: r.campaignId,
+            contactId: r.contactId,
+            phoneNumber: r.phoneNumber,
+            message: r.message,
+            preferredSim: r.simLine?.slot ?? undefined,
+          })),
+        );
       })
       .catch((err) => logger.error({ err }, "sending sweep failed"));
   }, 30_000);

@@ -29,6 +29,25 @@ class Prefs(context: Context) {
         get() = p.getString("lastDay", "") ?: ""
         set(value) { p.edit().putString("lastDay", value).apply() }
 
+    fun wasSent(recipientId: String): Boolean {
+        return sentIdSet().contains(recipientId)
+    }
+
+    fun markSent(recipientId: String) {
+        val ids = sentIdSet()
+        if (!ids.add(recipientId)) return
+        while (ids.size > 300) {
+            val first = ids.firstOrNull() ?: break
+            ids.remove(first)
+        }
+        p.edit().putString("sentIds", ids.joinToString("\n")).apply()
+    }
+
+    private fun sentIdSet(): LinkedHashSet<String> {
+        val raw = p.getString("sentIds", "") ?: ""
+        return LinkedHashSet(raw.split('\n').map { it.trim() }.filter { it.isNotEmpty() })
+    }
+
     companion object {
         fun normalizeUrl(raw: String): String {
             var value = raw.trim().trimEnd('/')

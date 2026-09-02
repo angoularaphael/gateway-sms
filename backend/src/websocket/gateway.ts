@@ -3,6 +3,12 @@ import type { Server } from "node:http";
 import { authenticateDevice } from "../services/deviceService.js";
 import { logger } from "../utils/logger.js";
 import type { SmsJobPayload } from "../types.js";
+import {
+  clearDevicePending,
+  enqueuePendingJob,
+  peekPendingJobs,
+  removePendingJob,
+} from "./pendingJobs.js";
 
 type DeviceSocket = WebSocket & { deviceId?: string };
 
@@ -12,7 +18,7 @@ const pending = new Map<
   { resolve: (ok: boolean) => void; reject: (err: Error) => void; timeout: NodeJS.Timeout }
 >();
 
-const httpPending = new Map<string, Array<SmsJobPayload & { simSlot: number }>>();
+export const SMS_ACK_TIMEOUT_MS = 75_000;
 
 export function attachGatewaySocket(server: Server) {
   const wss = new WebSocketServer({ server, path: "/ws/gateway" });
@@ -44,21 +50,31 @@ export function isDeviceConnected(deviceId: string): boolean {
 }
 
 export function sendJobToDevice(deviceId: string, job: SmsJobPayload & { simSlot: number }): Promise<boolean> {
-  const queued = httpPending.get(deviceId) ?? [];
-  if (!queued.some((item) => item.recipientId === job.recipientId)) {
-    queued.push(job);
-    httpPending.set(deviceId, queued);
-  }
+  enqueuePendingJob(deviceId, job);
 
   const ws = sockets.get(deviceId);
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: "sms.job", job }));
   }
 
-  return Promise.resolve(true);
+  const previous = pending.get(job.recipientId);
+  if (previous) {
+    clearTimeout(previous.timeout);
+    pending.delete(job.recipientId);
+  }
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      pending.delete(job.recipientId);
+      removePendingJob(job.recipientId);
+      reject(Object.assign(new Error("SMS ack timeout"), { code: "SMS_FAILED" }));
+    }, SMS_ACK_TIMEOUT_MS);
+    pending.set(job.recipientId, { resolve, reject, timeout });
+  });
 }
 
 export function resolveJobAck(recipientId: string, ok: boolean) {
+  removePendingJob(recipientId);
   const waiter = pending.get(recipientId);
   if (!waiter) return;
   clearTimeout(waiter.timeout);
@@ -67,9 +83,7 @@ export function resolveJobAck(recipientId: string, ok: boolean) {
 }
 
 export function pullPendingJobs(deviceId: string) {
-  const jobs = httpPending.get(deviceId) ?? [];
-  httpPending.set(deviceId, []);
-  return jobs;
+  return peekPendingJobs(deviceId, 1);
 }
 
 export function forgetDevice(deviceId: string) {
@@ -82,5 +96,5 @@ export function forgetDevice(deviceId: string) {
     }
     sockets.delete(deviceId);
   }
-  httpPending.delete(deviceId);
+  clearDevicePending(deviceId);
 }

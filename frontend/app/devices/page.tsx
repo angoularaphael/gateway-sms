@@ -120,9 +120,10 @@ export default function DevicesPage() {
           Copier l’URL
         </button>
         <p className="mt-3">
-          Si le téléphone reste OFFLINE : Wi‑Fi (pas 4G), APK 1.0.4+, puis Connecter. Autorise SMS / téléphone /
+          Si le téléphone reste OFFLINE : Wi‑Fi (pas 4G), APK 1.0.6+, puis Connecter. Autorise SMS / téléphone /
           notifications. Sur Android 15, l’APK hors Play Store est bloquée : Paramètres de l’appli → ⋮ →
-          Autoriser les réglages restreints, puis « Définir comme appli SMS ».
+          Autoriser les réglages restreints, puis « Définir comme appli SMS ». Si le copier-coller dans Messages
+          marche mais pas l’envoi auto, l’app doit être l’appli SMS par défaut.
         </p>
       </div>
 

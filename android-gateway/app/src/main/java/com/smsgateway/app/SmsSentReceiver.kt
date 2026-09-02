@@ -2,30 +2,91 @@ package com.smsgateway.app
 
 import android.app.Activity
 import android.content.BroadcastReceiver
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.provider.Telephony
 import android.telephony.SmsManager
 import kotlin.concurrent.thread
 
 class SmsSentReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val recipientId = intent.getStringExtra(SmsSender.EXTRA_RECIPIENT) ?: return
-        val prefs = Prefs(context)
-        val result = resultCode
-        thread {
-            val client = GatewayClient(prefs)
-            if (result == Activity.RESULT_OK) {
-                runCatching { client.smsResult(recipientId, true, stage = "sent") }
-            } else {
-                prefs.errors = prefs.errors + 1
-                val code = when (result) {
-                    SmsManager.RESULT_ERROR_NO_SERVICE, SmsManager.RESULT_ERROR_RADIO_OFF -> "NO_SIM"
-                    SmsManager.RESULT_ERROR_LIMIT_EXCEEDED -> "RATE_LIMIT"
-                    else -> "SMS_FAILED"
-                }
+        val formatIndex = intent.getIntExtra(SmsSender.EXTRA_FORMAT_INDEX, 0)
+        val partCount = intent.getIntExtra(SmsSender.EXTRA_PART_COUNT, 1)
+        val ok = resultCode == Activity.RESULT_OK
+        val batch = SmsSender.notePartResult(recipientId, formatIndex, partCount, ok)
+        if (!batch.complete) return
+
+        if (batch.success) {
+            JobGuard.complete(recipientId)
+            Prefs(context).markSent(recipientId)
+            persistSent(context, intent)
+            StatusStore.lastError = ""
+            report(context, recipientId, true, null, null)
+            return
+        }
+
+        val phone = intent.getStringExtra(SmsSender.EXTRA_PHONE).orEmpty()
+        val message = intent.getStringExtra(SmsSender.EXTRA_MESSAGE).orEmpty()
+        val simSlot = intent.getIntExtra(SmsSender.EXTRA_SIM_SLOT, 1)
+        val candidates = SmsSender.destinationCandidates(phone)
+        if (SmsSender.isRetryableRadioError(resultCode) && formatIndex + 1 < candidates.size) {
+            Handler(Looper.getMainLooper()).post {
                 runCatching {
-                    client.smsResult(recipientId, false, code, "sent resultCode=$result", "sent")
+                    SmsSender.send(context, phone, message, recipientId, simSlot, formatIndex + 1)
+                }.onFailure { err ->
+                    JobGuard.complete(recipientId)
+                    StatusStore.lastError = err.message ?: "SMS retry failed"
+                    report(context, recipientId, false, "SMS_FAILED", err.message)
                 }
+            }
+            return
+        }
+
+        JobGuard.complete(recipientId)
+        val prefs = Prefs(context)
+        prefs.errors = prefs.errors + 1
+        val code = when (resultCode) {
+            SmsManager.RESULT_ERROR_NO_SERVICE, SmsManager.RESULT_ERROR_RADIO_OFF -> "NO_SIM"
+            SmsManager.RESULT_ERROR_LIMIT_EXCEEDED -> "RATE_LIMIT"
+            else -> "SMS_FAILED"
+        }
+        StatusStore.lastError = "SMS refusée (resultCode=$resultCode). Copier-coller dans Messages marche, l’envoi auto a échoué."
+        report(context, recipientId, false, code, "sent resultCode=$resultCode")
+    }
+
+    private fun persistSent(context: Context, intent: Intent) {
+        if (context.packageName != Telephony.Sms.getDefaultSmsPackage(context)) return
+        val dest = intent.getStringExtra(SmsSender.EXTRA_PHONE) ?: return
+        val body = intent.getStringExtra(SmsSender.EXTRA_MESSAGE) ?: return
+        runCatching {
+            val values = ContentValues().apply {
+                put("address", dest)
+                put("body", body)
+                put("date", System.currentTimeMillis())
+                put("read", 1)
+                put("type", 2)
+            }
+            context.contentResolver.insert(Uri.parse("content://sms/sent"), values)
+        }
+    }
+
+    private fun report(
+        context: Context,
+        recipientId: String,
+        success: Boolean,
+        errorCode: String?,
+        errorDetail: String?,
+    ) {
+        val prefs = Prefs(context)
+        if (success) prefs.messagesToday = prefs.messagesToday + 1
+        thread {
+            runCatching {
+                GatewayClient(prefs).smsResult(recipientId, success, errorCode, errorDetail, "sent")
             }
         }
     }

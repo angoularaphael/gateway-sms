@@ -7,6 +7,7 @@ import { getOnlineSelectableSims } from "../services/deviceService.js";
 import { isPhoneUnsubscribed } from "../services/unsubscribeService.js";
 import { maybeCompleteCampaign } from "../services/campaignService.js";
 import { sendJobToDevice } from "../websocket/gateway.js";
+import { removePendingJob } from "../websocket/pendingJobs.js";
 import { logger } from "../utils/logger.js";
 import { config } from "../config.js";
 import type { SmsJobPayload } from "../types.js";
@@ -37,9 +38,6 @@ export function startSmsWorker() {
       if (!recipient) return { skipped: "missing" };
       if (recipient.status === "SENT" || recipient.status === "DELIVERED" || recipient.status === "CANCELLED") {
         return { skipped: recipient.status };
-      }
-      if (recipient.status === "SENDING" && job.attemptsMade > 0) {
-        return { skipped: "already-dispatched" };
       }
 
       const campaign = await prisma.campaign.findUnique({ where: { id: data.campaignId } });
@@ -104,15 +102,36 @@ export function startSmsWorker() {
       });
 
       try {
-        await sendJobToDevice(sim.deviceId, { ...data, simSlot: sim.slot });
+        const ok = await sendJobToDevice(sim.deviceId, { ...data, simSlot: sim.slot });
+        if (!ok) {
+          const latest = await prisma.campaignRecipient.findUnique({ where: { id: data.recipientId } });
+          const code = latest?.errorCode ?? "SMS_FAILED";
+          if (shouldRetry(code, latest?.attempts ?? job.attemptsMade + 1, config.smsJobAttempts)) {
+            await prisma.campaignRecipient.updateMany({
+              where: { id: data.recipientId, status: { in: ["FAILED", "SENDING"] } },
+              data: { status: "QUEUED" },
+            });
+            await job.moveToDelayed(Date.now() + 25_000, token);
+            throw new DelayedError();
+          }
+          await maybeCompleteCampaign(data.campaignId);
+          return { failed: true };
+        }
         return { dispatched: true };
       } catch (err) {
+        if (err instanceof DelayedError) throw err;
+        removePendingJob(data.recipientId);
         const code = (err as { code?: string }).code === "DEVICE_OFFLINE" ? "DEVICE_OFFLINE" : "SMS_FAILED";
         logger.warn({ err, recipientId: data.recipientId }, "dispatch failed");
         await prisma.campaignRecipient.updateMany({
           where: { id: data.recipientId, status: { in: ["SENDING", "QUEUED"] } },
-          data: { status: "QUEUED", errorCode: code },
+          data: { status: "QUEUED", errorCode: code, errorDetail: (err as Error).message?.slice(0, 180) },
         });
+        const latest = await prisma.campaignRecipient.findUnique({ where: { id: data.recipientId } });
+        if (shouldRetry(code, latest?.attempts ?? job.attemptsMade + 1, config.smsJobAttempts)) {
+          await job.moveToDelayed(Date.now() + 15_000, token);
+          throw new DelayedError();
+        }
         throw err;
       }
     },

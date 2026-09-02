@@ -1,5 +1,6 @@
 package com.smsgateway.app
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -8,22 +9,35 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import androidx.core.content.ContextCompat
 import org.json.JSONObject
 import java.time.LocalDate
 import java.util.Collections
 import java.util.Timer
 import java.util.TimerTask
 
+object JobGuard {
+    private val inFlight = Collections.synchronizedSet(mutableSetOf<String>())
+
+    fun begin(id: String): Boolean = inFlight.add(id)
+
+    fun complete(id: String) {
+        inFlight.remove(id)
+    }
+}
+
 class GatewayService : Service() {
     private var timer: Timer? = null
     private lateinit var prefs: Prefs
     private lateinit var client: GatewayClient
-    private val sentRecipientIds = Collections.synchronizedSet(mutableSetOf<String>())
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun onCreate() {
         super.onCreate()
@@ -42,14 +56,29 @@ class GatewayService : Service() {
         return START_STICKY
     }
 
+    private fun fgsType(): Int {
+        if (Build.VERSION.SDK_INT < 29) return 0
+        var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+        if (Build.VERSION.SDK_INT >= 34) {
+            type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING
+        }
+        return type
+    }
+
     private fun startFg(text: String) {
         val notification = notification(text)
-        ServiceCompat.startForeground(
-            this,
-            1,
-            notification,
-            if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC else 0,
-        )
+        try {
+            ServiceCompat.startForeground(this, 1, notification, fgsType())
+        } catch (_: Exception) {
+            if (Build.VERSION.SDK_INT >= 29) {
+                ServiceCompat.startForeground(
+                    this,
+                    1,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+                )
+            }
+        }
     }
 
     private fun tick() {
@@ -66,14 +95,16 @@ class GatewayService : Service() {
                     @Suppress("DEPRECATION")
                     packageManager.getPackageInfo(packageName, 0).versionName
                 }
-                    }.getOrNull() ?: "1.0.4"
+                    }.getOrNull() ?: "1.0.6"
 
-            client.heartbeat(version ?: "1.0.4", SimReader.toJson(sims))
+            client.heartbeat(version ?: "1.0.6", SimReader.toJson(sims))
             StatusStore.connected = true
-            StatusStore.lastError = ""
+            if (StatusStore.lastError.startsWith("HTTP") || StatusStore.lastError.contains("Connexion")) {
+                StatusStore.lastError = ""
+            }
             val jobs = client.pendingJobs()
-            for (i in 0 until jobs.length()) {
-                handleJob(jobs.getJSONObject(i))
+            if (jobs.length() > 0) {
+                handleJob(jobs.getJSONObject(0))
             }
         } catch (err: Exception) {
             StatusStore.connected = false
@@ -89,15 +120,33 @@ class GatewayService : Service() {
         val message = nested.optString("message")
         val simSlot = nested.optInt("simSlot", 1)
         if (recipientId.isBlank() || phone.isBlank()) return
-        if (!sentRecipientIds.add(recipientId)) return
-        try {
-            SmsSender.send(this, phone, message, recipientId, simSlot)
-            prefs.messagesToday = prefs.messagesToday + 1
-        } catch (e: Exception) {
-            sentRecipientIds.remove(recipientId)
-            prefs.errors = prefs.errors + 1
-            client.smsResult(recipientId, false, "SMS_FAILED", e.message, "sent")
+        if (prefs.wasSent(recipientId)) {
+            runCatching { client.smsResult(recipientId, true, stage = "sent") }
+            return
         }
+        if (!JobGuard.begin(recipientId)) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) {
+            JobGuard.complete(recipientId)
+            StatusStore.lastError = "Permission SMS refusée"
+            client.smsResult(recipientId, false, "SMS_FAILED", "SEND_SMS permission denied", "sent")
+            return
+        }
+        mainHandler.post {
+            try {
+                SmsSender.send(this, phone, message, recipientId, simSlot)
+            } catch (e: Exception) {
+                JobGuard.complete(recipientId)
+                prefs.errors = prefs.errors + 1
+                StatusStore.lastError = e.message ?: e.javaClass.simpleName
+                threadReport(recipientId, e.message)
+            }
+        }
+    }
+
+    private fun threadReport(recipientId: String, detail: String?) {
+        Thread {
+            runCatching { client.smsResult(recipientId, false, "SMS_FAILED", detail, "sent") }
+        }.start()
     }
 
     private fun resetDailyIfNeeded() {
