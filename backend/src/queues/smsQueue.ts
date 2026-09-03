@@ -102,10 +102,7 @@ export async function requeueStuckRecipients(
   });
 
   if (contestPending === 0) {
-    await prisma.campaign.updateMany({
-      where: { name: { startsWith: "Boutique SMS" }, status: "PAUSED" },
-      data: { status: "RUNNING", completedAt: null },
-    });
+    logger.info("file concours vide — boutique reste en pause jusqu’à confirmation");
   }
 
   const retryErrors: SmsErrorCode[] = ["SMS_FAILED", "DEVICE_OFFLINE", "RATE_LIMIT", "NO_SIM"];
