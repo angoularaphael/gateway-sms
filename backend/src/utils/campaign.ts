@@ -52,3 +52,12 @@ export function isRetryableStuckRecipient(status: string, errorCode?: string | n
   if (status === "QUEUED" || status === "SENDING") return true;
   return status === "FAILED" && STUCK_RETRY_ERRORS.has(errorCode ?? "");
 }
+
+/** SMS du jeu concours 10 ans — à envoyer avant la boutique. */
+export function isContestSms(input: { campaignName?: string | null; message?: string | null }): boolean {
+  const name = input.campaignName || "";
+  const message = input.message || "";
+  if (/^Boutique SMS/i.test(name)) return false;
+  if (/^Concours SMS/i.test(name)) return true;
+  return /jeu concours/i.test(message) || /10 ans Boxing Center/i.test(message);
+}

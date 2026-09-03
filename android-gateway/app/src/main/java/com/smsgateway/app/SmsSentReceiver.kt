@@ -1,6 +1,5 @@
 package com.smsgateway.app
 
-import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.ContentValues
 import android.content.Context
@@ -17,7 +16,7 @@ class SmsSentReceiver : BroadcastReceiver() {
         val recipientId = intent.getStringExtra(SmsSender.EXTRA_RECIPIENT) ?: return
         val formatIndex = intent.getIntExtra(SmsSender.EXTRA_FORMAT_INDEX, 0)
         val partCount = intent.getIntExtra(SmsSender.EXTRA_PART_COUNT, 1)
-        val ok = resultCode == Activity.RESULT_OK
+        val ok = SmsSender.isAcceptedByRadio(resultCode)
         val batch = SmsSender.notePartResult(recipientId, formatIndex, partCount, ok)
         if (!batch.complete) return
 

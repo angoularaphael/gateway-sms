@@ -1,7 +1,7 @@
 import { Queue } from "bullmq";
 import IORedis from "ioredis";
 import { config } from "../config.js";
-import { QUEUE_SMS, type SmsJob } from "../utils/campaign.js";
+import { QUEUE_SMS, isContestSms, type SmsJob } from "../utils/campaign.js";
 import { logger } from "../utils/logger.js";
 import type { SmsJobPayload } from "../types.js";
 
@@ -50,7 +50,10 @@ function isDuplicateJobError(err: unknown): boolean {
   return /already (exists|exist|in the queue|in queue)/i.test(msg);
 }
 
-export async function enqueueSmsJobs(jobs: SmsJobPayload[]): Promise<void> {
+export async function enqueueSmsJobs(
+  jobs: SmsJobPayload[],
+  opts: { priority?: number } = {},
+): Promise<void> {
   if (jobs.length === 0) return;
   if (redisCommandsBlocked()) return;
   const queue = getSmsQueue();
@@ -62,6 +65,7 @@ export async function enqueueSmsJobs(jobs: SmsJobPayload[]): Promise<void> {
         removeOnComplete: { count: 50 },
         removeOnFail: { count: 100 },
         jobId: data.recipientId,
+        ...(opts.priority != null ? { priority: opts.priority } : {}),
       });
     } catch (err) {
       noteRedisError(err);
@@ -79,25 +83,62 @@ export async function requeueStuckRecipients(
   opts: { take?: number; queuedOnly?: boolean } = {},
 ): Promise<number> {
   if (redisCommandsBlocked()) return 0;
-  const take = Math.max(1, Math.min(opts.take ?? 25, 40));
+  const take = Math.max(1, Math.min(opts.take ?? 25, 200));
   const { prisma } = await import("../utils/prisma.js");
   const online = await prisma.device.count({ where: { status: "ONLINE" } });
   if (online === 0) return 0;
 
+  const contestPending = await prisma.campaignRecipient.count({
+    where: {
+      status: { in: ["QUEUED", "SENDING"] },
+      OR: [
+        { campaign: { name: { startsWith: "Concours SMS" } } },
+        { message: { contains: "jeu concours", mode: "insensitive" } },
+        { message: { contains: "10 ans Boxing Center", mode: "insensitive" } },
+      ],
+      NOT: { campaign: { name: { startsWith: "Boutique SMS" } } },
+    },
+  });
+
+  if (contestPending === 0) {
+    await prisma.campaign.updateMany({
+      where: { name: { startsWith: "Boutique SMS" }, status: "PAUSED" },
+      data: { status: "RUNNING", completedAt: null },
+    });
+  }
+
+  const statusWhere = opts.queuedOnly
+    ? { status: "QUEUED" as const }
+    : {
+        OR: [
+          { status: "QUEUED" as const },
+          { status: "SENDING" as const },
+          {
+            status: "FAILED" as const,
+            errorCode: { in: ["SMS_FAILED", "DEVICE_OFFLINE", "RATE_LIMIT", "NO_SIM"] },
+            attempts: { lt: 10 },
+          },
+        ],
+      };
+
+  const contestWhere = {
+    OR: [
+      { campaign: { name: { startsWith: "Concours SMS" } } },
+      { message: { contains: "jeu concours", mode: "insensitive" } },
+      { message: { contains: "10 ans Boxing Center", mode: "insensitive" } },
+    ],
+    NOT: { campaign: { name: { startsWith: "Boutique SMS" } } },
+  };
+
   const rows = await prisma.campaignRecipient.findMany({
-    where: opts.queuedOnly
-      ? { status: "QUEUED" }
-      : {
-          OR: [
-            { status: "QUEUED" },
-            { status: "SENDING" },
-            {
-              status: "FAILED",
-              errorCode: { in: ["SMS_FAILED", "DEVICE_OFFLINE", "RATE_LIMIT", "NO_SIM"] },
-              attempts: { lt: 10 },
-            },
-          ],
-        },
+    where: {
+      AND: [
+        statusWhere,
+        { campaign: { status: { notIn: ["PAUSED", "CANCELLED"] } } },
+        contestPending > 0 ? contestWhere : {},
+      ],
+    },
+    include: { campaign: { select: { name: true } } },
     take,
     orderBy: { createdAt: "asc" },
   });
@@ -112,14 +153,27 @@ export async function requeueStuckRecipients(
     where: { id: { in: rows.map((r) => r.id) } },
     data: { status: "QUEUED", errorCode: null, errorDetail: null },
   });
+  const contestJobs = rows.filter((r) => isContestSms({ campaignName: r.campaign.name, message: r.message }));
+  const restJobs = rows.filter((r) => !isContestSms({ campaignName: r.campaign.name, message: r.message }));
   await enqueueSmsJobs(
-    rows.map((r) => ({
+    contestJobs.map((r) => ({
       recipientId: r.id,
       campaignId: r.campaignId,
       contactId: r.contactId,
       phoneNumber: r.phoneNumber,
       message: r.message,
     })),
+    { priority: 1 },
+  );
+  await enqueueSmsJobs(
+    restJobs.map((r) => ({
+      recipientId: r.id,
+      campaignId: r.campaignId,
+      contactId: r.contactId,
+      phoneNumber: r.phoneNumber,
+      message: r.message,
+    })),
+    { priority: 10 },
   );
   return rows.length;
 }

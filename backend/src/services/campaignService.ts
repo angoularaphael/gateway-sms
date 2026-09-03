@@ -1,7 +1,7 @@
 import { prisma } from "../utils/prisma.js";
 import { interpolateMessage, estimateCampaignSms } from "../utils/template.js";
 import { excludeUnsubscribed } from "../utils/unsubscribe.js";
-import { canTransition, type CampaignLifecycle } from "../utils/campaign.js";
+import { canTransition, isContestSms, type CampaignLifecycle } from "../utils/campaign.js";
 import { getUnsubscribedSet } from "./unsubscribeService.js";
 import { enqueueSmsJobs, removeQueuedJobsForCampaign } from "../queues/smsQueue.js";
 import { createContact, importCsv } from "./contactService.js";
@@ -247,7 +247,10 @@ export async function startCampaign(id: string, opts: { preferredSimSlot?: numbe
   return { queued: queued.recipients.length, preferredSimSlot: slot ?? null };
 }
 
-export async function retryUnconfirmed(id: string, opts: { preferredSimSlot?: number | null } = {}) {
+export async function retryUnconfirmed(
+  id: string,
+  opts: { preferredSimSlot?: number | null; contestOnly?: boolean; pendingOnly?: boolean } = {},
+) {
   const campaign = await prisma.campaign.findUniqueOrThrow({ where: { id } });
   const slot =
     opts.preferredSimSlot === 1 || opts.preferredSimSlot === 2
@@ -265,35 +268,59 @@ export async function retryUnconfirmed(id: string, opts: { preferredSimSlot?: nu
   const rows = await prisma.campaignRecipient.findMany({
     where: {
       campaignId: id,
-      OR: [{ status: "FAILED" }, { status: "QUEUED" }, { status: "SENDING" }, { status: "SENT", deliveredAt: null }],
+      OR: opts.pendingOnly
+        ? [{ status: "FAILED" }, { status: "QUEUED" }, { status: "SENDING" }]
+        : [{ status: "FAILED" }, { status: "QUEUED" }, { status: "SENDING" }, { status: "SENT", deliveredAt: null }],
     },
   });
-  if (!rows.length) {
+  const filtered = rows.filter((r) => {
+    if (r.errorCode === "UNSUBSCRIBED" || r.errorCode === "INVALID_NUMBER") return false;
+    if (opts.contestOnly && !isContestSms({ campaignName: campaign.name, message: r.message })) return false;
+    return true;
+  });
+  if (!filtered.length) {
     throw Object.assign(new Error("Aucun SMS à renvoyer (échecs ou sans accusé de réception)."), { status: 400 });
   }
 
   await prisma.campaignRecipient.updateMany({
-    where: { id: { in: rows.map((r) => r.id) } },
+    where: { id: { in: filtered.map((r) => r.id) } },
     data: { status: "QUEUED", errorCode: null, errorDetail: null, sentAt: null, deliveredAt: null },
   });
 
   await enqueueSmsJobs(
-    rows.map((r) => ({
-      recipientId: r.id,
-      campaignId: r.campaignId,
-      contactId: r.contactId,
-      phoneNumber: r.phoneNumber,
-      message: r.message,
-      preferredSim: slot ?? undefined,
-    })),
+    filtered
+      .filter((r) => isContestSms({ campaignName: campaign.name, message: r.message }))
+      .map((r) => ({
+        recipientId: r.id,
+        campaignId: r.campaignId,
+        contactId: r.contactId,
+        phoneNumber: r.phoneNumber,
+        message: r.message,
+        preferredSim: slot ?? undefined,
+      })),
+    { priority: 1 },
+  );
+  await enqueueSmsJobs(
+    filtered
+      .filter((r) => !isContestSms({ campaignName: campaign.name, message: r.message }))
+      .map((r) => ({
+        recipientId: r.id,
+        campaignId: r.campaignId,
+        contactId: r.contactId,
+        phoneNumber: r.phoneNumber,
+        message: r.message,
+        preferredSim: slot ?? undefined,
+      })),
+    { priority: 10 },
   );
 
-  return { queued: rows.length, preferredSimSlot: slot ?? null };
+  return { queued: filtered.length, preferredSimSlot: slot ?? null };
 }
 
 export async function pauseCampaign(id: string) {
   await transition(id, "PAUSED");
   await prisma.campaign.update({ where: { id }, data: { status: "PAUSED" } });
+  await removeQueuedJobsForCampaign(id);
   return { status: "PAUSED" };
 }
 

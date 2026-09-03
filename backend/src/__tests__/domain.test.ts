@@ -4,7 +4,8 @@ import { parseContactsCsv, findDuplicates } from "../utils/csv.js";
 import { interpolateMessage, estimateSms, estimateCampaignSms, toGsmSafe } from "../utils/template.js";
 import { excludeUnsubscribed, isUnsubscribed } from "../utils/unsubscribe.js";
 import { selectSimLine, isWithinRateLimit, sentTodayCount } from "../utils/simSelector.js";
-import { canTransition, buildSmsJob, shouldRetry, isRetryableStuckRecipient } from "../utils/campaign.js";
+import { canTransition, buildSmsJob, shouldRetry, isRetryableStuckRecipient, isContestSms } from "../utils/campaign.js";
+import { planSmsResult } from "../utils/smsResult.js";
 import type { SelectableSim } from "../types.js";
 
 function sim(overrides: Partial<SelectableSim> = {}): SelectableSim {
@@ -270,6 +271,71 @@ describe("campagnes et queue", () => {
     expect(isRetryableStuckRecipient("FAILED", "UNSUBSCRIBED")).toBe(false);
     expect(isRetryableStuckRecipient("SENT")).toBe(false);
     expect(isRetryableStuckRecipient("DELIVERED")).toBe(false);
+  });
+
+  it("identifie les SMS concours, pas la boutique", () => {
+    expect(isContestSms({ campaignName: "Concours SMS 3 sept", message: "Salut" })).toBe(true);
+    expect(isContestSms({ campaignName: "Messages logiciels", message: "C’est David, jeu concours 10 ans" })).toBe(true);
+    expect(isContestSms({ campaignName: "Messages logiciels", message: "Boxing Center fête ses 10 ans Boxing Center" })).toBe(true);
+    expect(isContestSms({ campaignName: "Boutique SMS 2026-08-12", message: "Ton abonnement" })).toBe(false);
+    expect(isContestSms({ campaignName: "Boutique SMS", message: "jeu concours" })).toBe(false);
+  });
+});
+
+describe("accusé SMS", () => {
+  it("ne bascule pas un SMS déjà parti en échec si l’accusé réseau manque", () => {
+    const nack = planSmsResult({
+      currentStatus: "SENT",
+      success: false,
+      stage: "delivered",
+      errorDetail: "delivery resultCode=0",
+    });
+    expect(nack.update).toBeNull();
+    expect(nack.ack).toBeNull();
+
+    const sendingNack = planSmsResult({
+      currentStatus: "SENDING",
+      success: false,
+      stage: "delivered",
+      errorDetail: "non reçu (accusé réseau)",
+    });
+    expect(sendingNack.update).toBeNull();
+    expect(sendingNack.ack).toBeNull();
+  });
+
+  it("garde SENT si un faux échec arrive après un envoi ok", () => {
+    const plan = planSmsResult({
+      currentStatus: "SENT",
+      success: false,
+      stage: "sent",
+      errorCode: "SMS_FAILED",
+    });
+    expect(plan.update).toBeNull();
+    expect(plan.ack).toBe(true);
+  });
+
+  it("traite resultCode 124 comme un envoi accepté par la radio", () => {
+    const plan = planSmsResult({
+      currentStatus: "SENDING",
+      success: false,
+      stage: "sent",
+      errorCode: "SMS_FAILED",
+      errorDetail: "sent resultCode=124",
+    });
+    expect(plan.update?.status).toBe("SENT");
+    expect(plan.ack).toBe(true);
+  });
+
+  it("marque bien un vrai échec radio avant envoi confirmé", () => {
+    const plan = planSmsResult({
+      currentStatus: "SENDING",
+      success: false,
+      stage: "sent",
+      errorCode: "SMS_FAILED",
+      errorDetail: "sent resultCode=1",
+    });
+    expect(plan.update?.status).toBe("FAILED");
+    expect(plan.ack).toBe(false);
   });
 });
 

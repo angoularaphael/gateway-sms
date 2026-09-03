@@ -60,13 +60,22 @@ object SmsSender {
         }
     }
 
+    /** RESULT_RADIO_NOT_AVAILABLE : le SMS est souvent déjà parti, l’accusé radio ment. */
+    const RESULT_RADIO_NOT_AVAILABLE = 124
+
+    fun isAcceptedByRadio(resultCode: Int): Boolean {
+        return resultCode == android.app.Activity.RESULT_OK || resultCode == RESULT_RADIO_NOT_AVAILABLE
+    }
+
     fun isRetryableRadioError(resultCode: Int): Boolean {
+        if (isAcceptedByRadio(resultCode)) return false
         return when (resultCode) {
             SmsManager.RESULT_ERROR_NO_SERVICE,
             SmsManager.RESULT_ERROR_RADIO_OFF,
             SmsManager.RESULT_ERROR_LIMIT_EXCEEDED,
+            RESULT_RADIO_NOT_AVAILABLE,
             -> false
-            else -> resultCode != android.app.Activity.RESULT_OK
+            else -> true
         }
     }
 

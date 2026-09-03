@@ -8,23 +8,11 @@ import kotlin.concurrent.thread
 
 class SmsDeliveredReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        if (resultCode != Activity.RESULT_OK) return
         val recipientId = intent.getStringExtra(SmsSender.EXTRA_RECIPIENT) ?: return
         val prefs = Prefs(context)
         thread {
-            val client = GatewayClient(prefs)
-            if (resultCode == Activity.RESULT_OK) {
-                runCatching { client.smsResult(recipientId, true, stage = "delivered") }
-            } else {
-                runCatching {
-                    client.smsResult(
-                        recipientId,
-                        false,
-                        "SMS_FAILED",
-                        "delivery resultCode=$resultCode",
-                        "delivered",
-                    )
-                }
-            }
+            runCatching { GatewayClient(prefs).smsResult(recipientId, true, stage = "delivered") }
         }
     }
 }

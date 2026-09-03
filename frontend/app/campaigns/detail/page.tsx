@@ -296,7 +296,17 @@ function CampaignDetail() {
                   <td className="px-4 py-2">{[r.contact?.prenom, r.contact?.nom].filter(Boolean).join(" ") || "—"}</td>
                   <td className="px-4 py-2">{r.phoneNumber}</td>
                   <td className="px-4 py-2">
-                    {r.status === "DELIVERED" ? "Reçu" : r.status === "SENT" ? "Envoyé, pas d’accusé" : r.status}
+                    {r.status === "DELIVERED"
+                      ? "Reçu"
+                      : r.status === "SENT"
+                        ? "Envoyé, pas d’accusé"
+                        : r.status === "FAILED"
+                          ? "Échec"
+                          : r.status === "SENDING"
+                            ? "Envoi…"
+                            : r.status === "QUEUED"
+                              ? "En file"
+                              : r.status}
                     {r.errorDetail ? ` · ${r.errorDetail}` : ""}
                   </td>
                   <td className="px-4 py-2">{r.simLine ? `SIM ${r.simLine.slot}` : "—"}</td>

@@ -9,6 +9,7 @@ import { prisma } from "../utils/prisma.js";
 import { markSimUsed } from "../workers/smsWorker.js";
 import { maybeCompleteCampaign } from "../services/campaignService.js";
 import { resolveJobAck } from "../websocket/gateway.js";
+import { planSmsResult } from "../utils/smsResult.js";
 
 function asyncHandler(fn: (req: Request, res: Response) => Promise<unknown>) {
   return (req: Request, res: Response, next: (err?: unknown) => void) => {
@@ -114,45 +115,30 @@ export const devices = {
       return;
     }
     const kind = stage === "delivered" ? "delivered" : "sent";
-    if (success && kind === "delivered") {
+    const plan = planSmsResult({
+      currentStatus: recipient.status,
+      success,
+      stage: kind,
+      errorCode: errorCode ?? null,
+      errorDetail: errorDetail ?? null,
+      sentAt: recipient.sentAt,
+    });
+    if (plan.update) {
       await prisma.campaignRecipient.update({
         where: { id: recipientId },
         data: {
-          status: "DELIVERED",
-          deliveredAt: new Date(),
-          sentAt: recipient.sentAt ?? new Date(),
-          errorCode: null,
-          errorDetail: null,
+          status: plan.update.status,
+          sentAt: plan.update.sentAt ?? undefined,
+          deliveredAt: plan.update.deliveredAt ?? undefined,
+          errorCode: plan.update.errorCode,
+          errorDetail: plan.update.errorDetail,
         },
       });
-    } else if (success) {
-      if (recipient.status !== "DELIVERED") {
-        await prisma.campaignRecipient.update({
-          where: { id: recipientId },
-          data: { status: "SENT", sentAt: recipient.sentAt ?? new Date(), errorCode: null, errorDetail: null },
-        });
-        if (recipient.simLineId && recipient.status !== "SENT") {
-          await markSimUsed(recipient.simLineId, new Date());
-        }
+      if (plan.update.markSimUsed && recipient.simLineId) {
+        await markSimUsed(recipient.simLineId, new Date());
       }
-    } else if (kind === "delivered") {
-      if (recipient.status !== "DELIVERED") {
-        await prisma.campaignRecipient.update({
-          where: { id: recipientId },
-          data: {
-            status: "FAILED",
-            errorCode: errorCode ?? "SMS_FAILED",
-            errorDetail: errorDetail || "non reçu (accusé réseau)",
-          },
-        });
-      }
-    } else if (recipient.status !== "SENT" && recipient.status !== "DELIVERED") {
-      await prisma.campaignRecipient.update({
-        where: { id: recipientId },
-        data: { status: "FAILED", errorCode: errorCode ?? "SMS_FAILED", errorDetail },
-      });
     }
-    resolveJobAck(recipientId, success);
+    if (plan.ack !== null) resolveJobAck(recipientId, plan.ack);
     await maybeCompleteCampaign(recipient.campaignId);
     res.json({ ok: true });
   }),
@@ -209,6 +195,8 @@ export const campaigns = {
     res.json(
       await campaignService.retryUnconfirmed(String(req.params.id), {
         preferredSimSlot: slot === undefined ? undefined : slot === null || slot === "" ? 0 : Number(slot),
+        contestOnly: Boolean(req.body?.contestOnly),
+        pendingOnly: Boolean(req.body?.pendingOnly),
       }),
     );
   }),
@@ -233,6 +221,15 @@ export const campaigns = {
 export const dashboard = {
   stats: asyncHandler(async (_req, res) => {
     res.json(await campaignService.dashboardStats());
+  }),
+};
+
+export const ops = {
+  requeue: asyncHandler(async (req, res) => {
+    const take = Math.min(Math.max(Number(req.body?.take) || 80, 1), 200);
+    const { requeueStuckRecipients } = await import("../queues/smsQueue.js");
+    const n = await requeueStuckRecipients({ take });
+    res.json({ ok: true, requeued: n });
   }),
 };
 

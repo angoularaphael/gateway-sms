@@ -91,9 +91,9 @@ class GatewayService : Service() {
                     @Suppress("DEPRECATION")
                     packageManager.getPackageInfo(packageName, 0).versionName
                 }
-                    }.getOrNull() ?: "1.0.6"
+                    }.getOrNull() ?: "1.0.7"
 
-            client.heartbeat(version ?: "1.0.6", SimReader.toJson(sims))
+            client.heartbeat(version ?: "1.0.7", SimReader.toJson(sims))
             StatusStore.connected = true
             if (StatusStore.lastError.startsWith("HTTP") || StatusStore.lastError.contains("Connexion")) {
                 StatusStore.lastError = ""

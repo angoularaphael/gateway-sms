@@ -109,6 +109,9 @@ export function startSmsWorker() {
         const ok = await sendJobToDevice(sim.deviceId, { ...data, simSlot: sim.slot });
         if (!ok) {
           const latest = await prisma.campaignRecipient.findUnique({ where: { id: data.recipientId } });
+          if (latest?.status === "SENT" || latest?.status === "DELIVERED") {
+            return { dispatched: true };
+          }
           const code = latest?.errorCode ?? "SMS_FAILED";
           if (shouldRetry(code, latest?.attempts ?? job.attemptsMade + 1, config.smsJobAttempts)) {
             await prisma.campaignRecipient.updateMany({
