@@ -16,19 +16,19 @@ async function main() {
 
   setInterval(() => {
     markStaleDevicesOffline().catch((err) => logger.error({ err }, "offline sweep failed"));
-  }, 30_000);
+  }, 60_000);
 
   setInterval(() => {
     import("./queues/smsQueue.js")
-      .then(({ requeueStuckRecipients }) => requeueStuckRecipients({ take: 120 }))
+      .then(({ requeueStuckRecipients }) => requeueStuckRecipients({ take: 25 }))
       .then((n) => {
         if (n > 0) logger.info({ n }, "stuck SMS requeued");
       })
       .catch((err) => logger.error({ err }, "stuck sms sweep failed"));
-  }, 30_000);
+  }, 10 * 60_000);
 
   setInterval(() => {
-    const cutoff = new Date(Date.now() - 120_000);
+    const cutoff = new Date(Date.now() - 180_000);
     prisma.campaignRecipient
       .findMany({
         where: { status: "SENDING", updatedAt: { lt: cutoff } },
@@ -57,7 +57,7 @@ async function main() {
         );
       })
       .catch((err) => logger.error({ err }, "sending sweep failed"));
-  }, 30_000);
+  }, 120_000);
 
   setInterval(() => {
     prisma.campaign
@@ -70,7 +70,7 @@ async function main() {
         }
       })
       .catch((err) => logger.error({ err }, "schedule sweep failed"));
-  }, 30_000);
+  }, 60_000);
 
   server.listen(config.port, config.host, () => {
     logger.info({ host: config.host, port: config.port }, "SMS Gateway API listening");

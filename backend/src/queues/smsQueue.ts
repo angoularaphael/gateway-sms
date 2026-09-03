@@ -2,14 +2,38 @@ import { Queue } from "bullmq";
 import IORedis from "ioredis";
 import { config } from "../config.js";
 import { QUEUE_SMS, type SmsJob } from "../utils/campaign.js";
+import { logger } from "../utils/logger.js";
 import type { SmsJobPayload } from "../types.js";
 
 let connection: IORedis | null = null;
 let smsQueue: Queue<SmsJobPayload> | null = null;
+let redisLimitHitAt = 0;
+
+export function redisCommandsBlocked(): boolean {
+  return redisLimitHitAt > 0 && Date.now() - redisLimitHitAt < 30 * 60_000;
+}
+
+function noteRedisError(err: unknown) {
+  const msg = String((err as Error)?.message || err || "");
+  if (/max requests limit/i.test(msg)) {
+    redisLimitHitAt = Date.now();
+    logger.error("Upstash: quota Redis mensuel atteint — on arrête les commandes 30 min");
+  }
+}
 
 export function getRedis(): IORedis {
   if (!connection) {
-    connection = new IORedis(config.redisUrl, { maxRetriesPerRequest: null });
+    connection = new IORedis(config.redisUrl, {
+      maxRetriesPerRequest: null,
+      enableOfflineQueue: false,
+      retryStrategy(times) {
+        if (redisCommandsBlocked()) return 60_000;
+        return Math.min(2000 * times, 30_000);
+      },
+    });
+    connection.on("error", (err) => {
+      noteRedisError(err);
+    });
   }
   return connection;
 }
@@ -21,37 +45,45 @@ export function getSmsQueue(): Queue<SmsJobPayload> {
   return smsQueue;
 }
 
+function isDuplicateJobError(err: unknown): boolean {
+  const msg = String((err as Error)?.message || "");
+  return /already (exists|exist|in the queue|in queue)/i.test(msg);
+}
+
 export async function enqueueSmsJobs(jobs: SmsJobPayload[]): Promise<void> {
   if (jobs.length === 0) return;
+  if (redisCommandsBlocked()) return;
   const queue = getSmsQueue();
   for (const data of jobs) {
-    const existing = await queue.getJob(data.recipientId);
-    if (existing) {
-      const state = await existing.getState();
-      if (state === "waiting" || state === "delayed" || state === "active" || state === "paused") {
-        continue;
-      }
-      await existing.remove().catch(() => undefined);
+    try {
+      await queue.add("send-sms", data, {
+        attempts: Math.max(config.smsJobAttempts, 1),
+        backoff: { type: "exponential", delay: config.smsJobBackoffMs },
+        removeOnComplete: { count: 50 },
+        removeOnFail: { count: 100 },
+        jobId: data.recipientId,
+      });
+    } catch (err) {
+      noteRedisError(err);
+      if (isDuplicateJobError(err) || redisCommandsBlocked()) continue;
+      throw err;
     }
-    await queue.add("send-sms", data, {
-      attempts: Math.max(config.smsJobAttempts, 1),
-      backoff: { type: "exponential", delay: config.smsJobBackoffMs },
-      removeOnComplete: 1000,
-      removeOnFail: 5000,
-      jobId: data.recipientId,
-    });
   }
 }
 
 export async function requeueQueuedRecipients(): Promise<number> {
-  return requeueStuckRecipients({ take: 50, queuedOnly: true });
+  return requeueStuckRecipients({ take: 25, queuedOnly: true });
 }
 
 export async function requeueStuckRecipients(
   opts: { take?: number; queuedOnly?: boolean } = {},
 ): Promise<number> {
-  const take = Math.max(1, opts.take ?? 120);
+  if (redisCommandsBlocked()) return 0;
+  const take = Math.max(1, Math.min(opts.take ?? 25, 40));
   const { prisma } = await import("../utils/prisma.js");
+  const online = await prisma.device.count({ where: { status: "ONLINE" } });
+  if (online === 0) return 0;
+
   const rows = await prisma.campaignRecipient.findMany({
     where: opts.queuedOnly
       ? { status: "QUEUED" }
@@ -93,6 +125,7 @@ export async function requeueStuckRecipients(
 }
 
 export async function removeQueuedJobsForCampaign(campaignId: string): Promise<void> {
+  if (redisCommandsBlocked()) return;
   const queue = getSmsQueue();
   const jobs = await queue.getJobs(["waiting", "delayed", "paused"]);
   await Promise.all(jobs.filter((j) => j.data.campaignId === campaignId).map((j) => j.remove()));

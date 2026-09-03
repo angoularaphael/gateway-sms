@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../utils/prisma.js";
 import { generateApiKey, generateDeviceId, hashApiKey } from "./authService.js";
 import { config } from "../config.js";
+import { logger } from "../utils/logger.js";
 
 const registerSchema = z.object({
   name: z.string().min(1).optional(),
@@ -109,6 +110,7 @@ export async function heartbeat(
     throw Object.assign(new Error("Appareil introuvable"), { status: 404 });
   }
 
+  const wasOffline = device.status !== "ONLINE";
   const sims = payload.sims ?? [];
   await prisma.$transaction(async (tx) => {
     await tx.device.update({
@@ -139,6 +141,15 @@ export async function heartbeat(
       });
     }
   });
+
+  if (wasOffline) {
+    import("../queues/smsQueue.js")
+      .then(({ requeueStuckRecipients }) => requeueStuckRecipients({ take: 25 }))
+      .then((n) => {
+        if (n > 0) logger.info({ n, deviceId }, "SMS file reprise (téléphone online)");
+      })
+      .catch((err) => logger.error({ err }, "requeue after heartbeat failed"));
+  }
 
   return prisma.device.findUniqueOrThrow({
     where: { id: device.id },

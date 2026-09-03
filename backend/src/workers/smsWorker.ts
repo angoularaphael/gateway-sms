@@ -49,7 +49,7 @@ export function startSmsWorker() {
         return { skipped: "CANCELLED" };
       }
       if (campaign.status === "PAUSED") {
-        await job.moveToDelayed(Date.now() + 15_000, token);
+        await job.moveToDelayed(Date.now() + 120_000, token);
         throw new DelayedError();
       }
 
@@ -73,8 +73,12 @@ export function startSmsWorker() {
           where: { id: data.recipientId },
           data: { status: "QUEUED", errorCode: selection.error },
         });
-        if (selection.error === "RATE_LIMIT" || selection.error === "DEVICE_OFFLINE") {
-          await job.moveToDelayed(Date.now() + (selection.error === "RATE_LIMIT" ? 20_000 : 15_000), token);
+        if (selection.error === "DEVICE_OFFLINE") {
+          // Leave the row QUEUED in Postgres. Do not bounce Redis every 15s.
+          return { skipped: "DEVICE_OFFLINE" };
+        }
+        if (selection.error === "RATE_LIMIT") {
+          await job.moveToDelayed(Date.now() + 60_000, token);
           throw new DelayedError();
         }
         if (!shouldRetry(selection.error, job.attemptsMade + 1, config.smsJobAttempts)) {
@@ -85,7 +89,7 @@ export function startSmsWorker() {
           await maybeCompleteCampaign(data.campaignId);
           return { failed: selection.error };
         }
-        await job.moveToDelayed(Date.now() + 10_000, token);
+        await job.moveToDelayed(Date.now() + 60_000, token);
         throw new DelayedError();
       }
 
@@ -111,7 +115,7 @@ export function startSmsWorker() {
               where: { id: data.recipientId, status: { in: ["FAILED", "SENDING"] } },
               data: { status: "QUEUED" },
             });
-            await job.moveToDelayed(Date.now() + 25_000, token);
+            await job.moveToDelayed(Date.now() + 60_000, token);
             throw new DelayedError();
           }
           await maybeCompleteCampaign(data.campaignId);
@@ -127,15 +131,22 @@ export function startSmsWorker() {
           where: { id: data.recipientId, status: { in: ["SENDING", "QUEUED"] } },
           data: { status: "QUEUED", errorCode: code, errorDetail: (err as Error).message?.slice(0, 180) },
         });
+        if (code === "DEVICE_OFFLINE") return { skipped: "DEVICE_OFFLINE" };
         const latest = await prisma.campaignRecipient.findUnique({ where: { id: data.recipientId } });
         if (shouldRetry(code, latest?.attempts ?? job.attemptsMade + 1, config.smsJobAttempts)) {
-          await job.moveToDelayed(Date.now() + 15_000, token);
+          await job.moveToDelayed(Date.now() + 60_000, token);
           throw new DelayedError();
         }
         throw err;
       }
     },
-    { connection: getRedis(), concurrency: 1 },
+    {
+      connection: getRedis(),
+      concurrency: 1,
+      lockDuration: 120_000,
+      stalledInterval: 120_000,
+      maxStalledCount: 1,
+    },
   );
 
   worker.on("failed", (job, err) => {
