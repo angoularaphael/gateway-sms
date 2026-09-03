@@ -67,9 +67,9 @@ export function sendJobToDevice(deviceId: string, job: SmsJobPayload & { simSlot
     const timeout = setTimeout(() => {
       pending.delete(job.recipientId);
       removePendingJob(job.recipientId);
-      resolve(true);
+      resolve(false);
     }, SMS_ACK_TIMEOUT_MS);
-    pending.set(job.recipientId, { resolve, reject: () => resolve(true), timeout });
+    pending.set(job.recipientId, { resolve, reject: () => resolve(false), timeout });
   });
 }
 

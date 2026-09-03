@@ -60,29 +60,29 @@ object SmsSender {
         }
     }
 
-    /** RESULT_RADIO_NOT_AVAILABLE : le SMS est souvent déjà parti, l’accusé radio ment. */
+    const val EXTRA_BARE_SEND = "bareSend"
+
+    /** RESULT_RADIO_NOT_AVAILABLE : l’accusé radio ment souvent. */
     const val RESULT_RADIO_NOT_AVAILABLE = 124
+    const val RESULT_OK = -1
+    const val RESULT_ERROR_GENERIC_FAILURE = 1
+    const val RESULT_ERROR_RADIO_OFF = 3
+    const val RESULT_ERROR_NO_SERVICE = 4
+    const val RESULT_ERROR_LIMIT_EXCEEDED = 5
 
     fun isAcceptedByRadio(resultCode: Int): Boolean {
-        return when (resultCode) {
-            SmsManager.RESULT_ERROR_LIMIT_EXCEEDED,
-            SmsManager.RESULT_ERROR_NO_SERVICE,
-            SmsManager.RESULT_ERROR_RADIO_OFF,
-            -> false
-            else -> true
-        }
+        return resultCode == RESULT_OK
+    }
+
+    fun isHardRadioRefusal(resultCode: Int): Boolean {
+        return resultCode == RESULT_ERROR_LIMIT_EXCEEDED ||
+            resultCode == RESULT_ERROR_NO_SERVICE ||
+            resultCode == RESULT_ERROR_RADIO_OFF
     }
 
     fun isRetryableRadioError(resultCode: Int): Boolean {
-        if (isAcceptedByRadio(resultCode)) return false
-        return when (resultCode) {
-            SmsManager.RESULT_ERROR_NO_SERVICE,
-            SmsManager.RESULT_ERROR_RADIO_OFF,
-            SmsManager.RESULT_ERROR_LIMIT_EXCEEDED,
-            RESULT_RADIO_NOT_AVAILABLE,
-            -> false
-            else -> true
-        }
+        if (isAcceptedByRadio(resultCode) || isHardRadioRefusal(resultCode)) return false
+        return resultCode != RESULT_RADIO_NOT_AVAILABLE
     }
 
     fun send(
@@ -92,6 +92,7 @@ object SmsSender {
         recipientId: String,
         simSlot: Int,
         formatIndex: Int = 0,
+        withStatusIntents: Boolean = true,
     ) {
         val candidates = destinationCandidates(phone)
         val dest = candidates.getOrNull(formatIndex) ?: candidates.firstOrNull() ?: phone
@@ -108,10 +109,18 @@ object SmsSender {
             context.getSystemService(SmsManager::class.java) ?: SmsManager.getDefault()
         }
 
-        val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
         val parts = smsManager.divideMessage(message)
+        if (!withStatusIntents) {
+            if (parts.size == 1) {
+                smsManager.sendTextMessage(dest, null, message, null, null)
+            } else {
+                smsManager.sendMultipartTextMessage(dest, null, parts, null, null)
+            }
+            return
+        }
+
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
         val sentIntents = ArrayList<PendingIntent>(parts.size)
-        val deliveredIntents = ArrayList<PendingIntent>(parts.size)
         for (i in parts.indices) {
             sentIntents.add(
                 PendingIntent.getBroadcast(
@@ -126,27 +135,17 @@ object SmsSender {
                         .putExtra(EXTRA_SIM_SLOT, simSlot)
                         .putExtra(EXTRA_FORMAT_INDEX, formatIndex)
                         .putExtra(EXTRA_PART_INDEX, i)
-                        .putExtra(EXTRA_PART_COUNT, parts.size),
-                    flags,
-                ),
-            )
-            deliveredIntents.add(
-                PendingIntent.getBroadcast(
-                    context,
-                    requestCode(recipientId, formatIndex, i, "delivered"),
-                    Intent(ACTION_DELIVERED)
-                        .setPackage(context.packageName)
-                        .putExtra(EXTRA_RECIPIENT, recipientId)
-                        .putExtra(EXTRA_STAGE, "delivered"),
+                        .putExtra(EXTRA_PART_COUNT, parts.size)
+                        .putExtra(EXTRA_BARE_SEND, false),
                     flags,
                 ),
             )
         }
 
         if (parts.size == 1) {
-            smsManager.sendTextMessage(dest, null, message, sentIntents[0], deliveredIntents[0])
+            smsManager.sendTextMessage(dest, null, message, sentIntents[0], null)
         } else {
-            smsManager.sendMultipartTextMessage(dest, null, parts, sentIntents, deliveredIntents)
+            smsManager.sendMultipartTextMessage(dest, null, parts, sentIntents, null)
         }
     }
 

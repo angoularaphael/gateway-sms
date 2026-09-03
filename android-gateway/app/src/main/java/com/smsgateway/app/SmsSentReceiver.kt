@@ -7,7 +7,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
-import android.telephony.SmsManager
 import kotlin.concurrent.thread
 
 class SmsSentReceiver : BroadcastReceiver() {
@@ -20,11 +19,7 @@ class SmsSentReceiver : BroadcastReceiver() {
         if (!batch.complete) return
 
         if (batch.success) {
-            JobGuard.complete(recipientId)
-            Prefs(context).markSent(recipientId)
-            persistSent(context, intent)
-            StatusStore.lastError = ""
-            report(context, recipientId, true, null, null)
+            finishSuccess(context, intent, recipientId)
             return
         }
 
@@ -32,6 +27,7 @@ class SmsSentReceiver : BroadcastReceiver() {
         val message = intent.getStringExtra(SmsSender.EXTRA_MESSAGE).orEmpty()
         val simSlot = intent.getIntExtra(SmsSender.EXTRA_SIM_SLOT, 1)
         val candidates = SmsSender.destinationCandidates(phone)
+
         if (SmsSender.isRetryableRadioError(resultCode) && formatIndex + 1 < candidates.size) {
             Handler(Looper.getMainLooper()).post {
                 runCatching {
@@ -45,16 +41,43 @@ class SmsSentReceiver : BroadcastReceiver() {
             return
         }
 
+        if (!SmsSender.isHardRadioRefusal(resultCode)) {
+            Handler(Looper.getMainLooper()).post {
+                runCatching {
+                    SmsSender.send(
+                        context,
+                        phone,
+                        message,
+                        recipientId,
+                        simSlot,
+                        formatIndex,
+                        withStatusIntents = false,
+                    )
+                    finishSuccess(context, intent, recipientId)
+                }.onFailure { err ->
+                    JobGuard.complete(recipientId)
+                    StatusStore.lastError = err.message ?: "SMS bare send failed"
+                    report(context, recipientId, false, "SMS_FAILED", err.message)
+                }
+            }
+            return
+        }
+
         JobGuard.complete(recipientId)
         val prefs = Prefs(context)
         prefs.errors = prefs.errors + 1
-        val code = when (resultCode) {
-            SmsManager.RESULT_ERROR_NO_SERVICE, SmsManager.RESULT_ERROR_RADIO_OFF -> "NO_SIM"
-            SmsManager.RESULT_ERROR_LIMIT_EXCEEDED -> "RATE_LIMIT"
-            else -> "SMS_FAILED"
-        }
+        val code = if (resultCode == SmsSender.RESULT_ERROR_LIMIT_EXCEEDED) "RATE_LIMIT" else "NO_SIM"
         StatusStore.lastError = "SMS refusée (resultCode=$resultCode). Copier-coller dans Messages marche, l’envoi auto a échoué."
         report(context, recipientId, false, code, "sent resultCode=$resultCode")
+    }
+
+    private fun finishSuccess(context: Context, intent: Intent, recipientId: String) {
+        JobGuard.complete(recipientId)
+        Prefs(context).markSent(recipientId)
+        persistSent(context, intent)
+        relabelFailedAsSent(context, intent)
+        StatusStore.lastError = ""
+        report(context, recipientId, true, null, null)
     }
 
     private fun persistSent(context: Context, intent: Intent) {
@@ -69,6 +92,19 @@ class SmsSentReceiver : BroadcastReceiver() {
                 put("type", 2)
             }
             context.contentResolver.insert(Uri.parse("content://sms/sent"), values)
+        }
+    }
+
+    private fun relabelFailedAsSent(context: Context, intent: Intent) {
+        val body = intent.getStringExtra(SmsSender.EXTRA_MESSAGE) ?: return
+        runCatching {
+            val values = ContentValues().apply { put("type", 2) }
+            context.contentResolver.update(
+                Uri.parse("content://sms"),
+                values,
+                "type=5 AND body=?",
+                arrayOf(body),
+            )
         }
     }
 

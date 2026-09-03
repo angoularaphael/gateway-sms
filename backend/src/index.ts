@@ -38,7 +38,7 @@ async function main() {
     prisma.campaignRecipient
       .updateMany({
         where: { status: "SENDING", updatedAt: { lt: cutoff } },
-        data: { status: "SENT", sentAt: new Date(), errorCode: null, errorDetail: null },
+        data: { status: "QUEUED", errorCode: null, errorDetail: "envoi interrompu, nouvel essai" },
       })
       .catch((err) => logger.error({ err }, "sending sweep failed"));
   }, 120_000);

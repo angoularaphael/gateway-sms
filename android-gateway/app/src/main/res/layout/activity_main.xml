@@ -57,7 +57,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Définir comme appli SMS (évite le popup)" />
+            android:text="Definir comme appli SMS par defaut (obligatoire)" />
 
         <Button
             android:id="@+id/restrictedSettingsButton"

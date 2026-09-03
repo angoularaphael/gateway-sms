@@ -25,9 +25,6 @@ export function planSmsResult(
   now = new Date(),
 ): SmsResultPlan {
   const kind = input.stage === "delivered" ? "delivered" : "sent";
-  if (!input.success && kind === "sent" && /sent resultCode=124\b/.test(input.errorDetail || "")) {
-    return planSmsResult({ ...input, success: true, errorCode: null, errorDetail: null }, now);
-  }
 
   if (input.currentStatus === "SENT" || input.currentStatus === "DELIVERED") {
     if (input.success && kind === "delivered") {
@@ -77,9 +74,20 @@ export function planSmsResult(
     };
   }
 
-  if (!input.success && kind === "sent" && input.errorCode !== "UNSUBSCRIBED" && input.errorCode !== "INVALID_NUMBER") {
-    // Accusé radio mensonger (OEM) : le SMS est déjà parti. Ne jamais afficher « non envoyé ».
-    return planSmsResult({ ...input, success: true, errorCode: null, errorDetail: null }, now);
+  if (
+    !input.success &&
+    kind === "sent" &&
+    input.errorCode !== "UNSUBSCRIBED" &&
+    input.errorCode !== "INVALID_NUMBER"
+  ) {
+    return {
+      ack: false,
+      update: {
+        status: "QUEUED",
+        errorCode: input.errorCode === "SMS_FAILED" ? null : (input.errorCode as SmsErrorCode | null),
+        errorDetail: input.errorDetail ?? "accusé radio, nouvel essai",
+      },
+    };
   }
 
   if (input.success && kind === "delivered") {

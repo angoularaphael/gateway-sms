@@ -329,7 +329,7 @@ describe("accusé SMS", () => {
     expect(plan.ack).toBe(false);
   });
 
-  it("traite resultCode 124 comme un envoi accepté par la radio", () => {
+  it("laisse en file un accusé radio 124 au lieu de le marquer envoyé", () => {
     const plan = planSmsResult({
       currentStatus: "SENDING",
       success: false,
@@ -337,8 +337,8 @@ describe("accusé SMS", () => {
       errorCode: "SMS_FAILED",
       errorDetail: "sent resultCode=124",
     });
-    expect(plan.update?.status).toBe("SENT");
-    expect(plan.ack).toBe(true);
+    expect(plan.update?.status).toBe("QUEUED");
+    expect(plan.ack).toBe(false);
   });
 
   it("garde UNSUBSCRIBED en échec réel", () => {
@@ -352,7 +352,7 @@ describe("accusé SMS", () => {
     expect(plan.ack).toBe(false);
   });
 
-  it("ne marque plus un accusé radio générique comme non envoyé", () => {
+  it("laisse en file un accusé radio générique", () => {
     const plan = planSmsResult({
       currentStatus: "SENDING",
       success: false,
@@ -360,8 +360,8 @@ describe("accusé SMS", () => {
       errorCode: "SMS_FAILED",
       errorDetail: "sent resultCode=1",
     });
-    expect(plan.update?.status).toBe("SENT");
-    expect(plan.ack).toBe(true);
+    expect(plan.update?.status).toBe("QUEUED");
+    expect(plan.ack).toBe(false);
   });
 
   it("ne redescend pas un SMS déjà parti en file si un plafond arrive en retard", () => {
