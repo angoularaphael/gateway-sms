@@ -78,7 +78,7 @@ export function startSmsWorker() {
           return { skipped: "DEVICE_OFFLINE" };
         }
         if (selection.error === "RATE_LIMIT") {
-          await job.moveToDelayed(Date.now() + 60_000, token);
+          await job.moveToDelayed(Date.now() + 90_000, token);
           throw new DelayedError();
         }
         if (!shouldRetry(selection.error, job.attemptsMade + 1, config.smsJobAttempts)) {

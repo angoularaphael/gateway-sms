@@ -27,6 +27,21 @@ export function planSmsResult(
     return planSmsResult({ ...input, success: true, errorCode: null, errorDetail: null }, now);
   }
 
+  if (
+    !input.success &&
+    kind === "sent" &&
+    (input.errorCode === "RATE_LIMIT" || /sent resultCode=5\b/.test(input.errorDetail || ""))
+  ) {
+    return {
+      ack: false,
+      update: {
+        status: "QUEUED",
+        errorCode: "RATE_LIMIT",
+        errorDetail: input.errorDetail || "limite d’envoi Android, nouvel essai",
+      },
+    };
+  }
+
   if (input.success && kind === "delivered") {
     return {
       ack: null,

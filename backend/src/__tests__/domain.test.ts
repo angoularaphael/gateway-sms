@@ -314,6 +314,19 @@ describe("accusé SMS", () => {
     expect(plan.ack).toBe(true);
   });
 
+  it("laisse en file un plafond Android (resultCode 5) au lieu de le marquer échoué", () => {
+    const plan = planSmsResult({
+      currentStatus: "SENDING",
+      success: false,
+      stage: "sent",
+      errorCode: "RATE_LIMIT",
+      errorDetail: "sent resultCode=5",
+    });
+    expect(plan.update?.status).toBe("QUEUED");
+    expect(plan.update?.errorCode).toBe("RATE_LIMIT");
+    expect(plan.ack).toBe(false);
+  });
+
   it("traite resultCode 124 comme un envoi accepté par la radio", () => {
     const plan = planSmsResult({
       currentStatus: "SENDING",
