@@ -53,12 +53,12 @@ class SmsSentReceiver : BroadcastReceiver() {
                         formatIndex,
                         withStatusIntents = false,
                     )
-                    finishSuccess(context, intent, recipientId)
-                }.onFailure { err ->
-                    JobGuard.complete(recipientId)
-                    StatusStore.lastError = err.message ?: "SMS bare send failed"
-                    report(context, recipientId, false, "SMS_FAILED", err.message)
+                    persistSent(context, intent)
+                    relabelFailedAsSent(context, intent)
                 }
+                JobGuard.complete(recipientId)
+                StatusStore.lastError = "Accusé radio $resultCode — nouvel essai"
+                report(context, recipientId, false, "SMS_FAILED", "sent resultCode=$resultCode")
             }
             return
         }
