@@ -62,6 +62,23 @@ export function startSmsWorker() {
         return { skipped: "UNSUBSCRIBED" };
       }
 
+      const alreadySent = await prisma.campaignRecipient.findFirst({
+        where: {
+          id: { not: data.recipientId },
+          phoneNumber: data.phoneNumber,
+          message: data.message,
+          status: { in: ["SENT", "DELIVERED", "SENDING"] },
+        },
+        select: { id: true },
+      });
+      if (alreadySent) {
+        await prisma.campaignRecipient.update({
+          where: { id: data.recipientId },
+          data: { status: "CANCELLED", errorDetail: "doublon — déjà envoyé" },
+        });
+        return { skipped: "duplicate" };
+      }
+
       const sims = await getOnlineSelectableSims();
       const selection = selectSimLine(sims, {
         preferredDevice: data.preferredDevice,
@@ -69,27 +86,14 @@ export function startSmsWorker() {
       });
 
       if (!selection.ok) {
-        await prisma.campaignRecipient.update({
-          where: { id: data.recipientId },
-          data: { status: "QUEUED", errorCode: selection.error },
-        });
         if (selection.error === "DEVICE_OFFLINE") {
-          // Leave the row QUEUED in Postgres. Do not bounce Redis every 15s.
-          return { skipped: "DEVICE_OFFLINE" };
-        }
-        if (selection.error === "RATE_LIMIT") {
-          await job.moveToDelayed(Date.now() + 90_000, token);
-          throw new DelayedError();
-        }
-        if (!shouldRetry(selection.error, job.attemptsMade + 1, config.smsJobAttempts)) {
           await prisma.campaignRecipient.update({
             where: { id: data.recipientId },
-            data: { status: "FAILED", errorCode: selection.error },
+            data: { status: "QUEUED", errorCode: "DEVICE_OFFLINE" },
           });
-          await maybeCompleteCampaign(data.campaignId);
-          return { failed: selection.error };
+          return { skipped: "DEVICE_OFFLINE" };
         }
-        await job.moveToDelayed(Date.now() + 60_000, token);
+        await job.moveToDelayed(Date.now() + 90_000, token);
         throw new DelayedError();
       }
 
@@ -113,16 +117,23 @@ export function startSmsWorker() {
             return { dispatched: true };
           }
           const code = latest?.errorCode ?? "SMS_FAILED";
-          if (shouldRetry(code, latest?.attempts ?? job.attemptsMade + 1, config.smsJobAttempts)) {
+          if (code === "RATE_LIMIT" || code === "NO_SIM" || shouldRetry(code, latest?.attempts ?? job.attemptsMade + 1, config.smsJobAttempts)) {
             await prisma.campaignRecipient.updateMany({
               where: { id: data.recipientId, status: { in: ["FAILED", "SENDING"] } },
-              data: { status: "QUEUED" },
+              data: { status: "QUEUED", errorCode: code === "SMS_FAILED" ? null : code },
             });
-            await job.moveToDelayed(Date.now() + 60_000, token);
+            await job.moveToDelayed(Date.now() + 90_000, token);
             throw new DelayedError();
           }
           await maybeCompleteCampaign(data.campaignId);
           return { failed: true };
+        }
+        const moved = await prisma.campaignRecipient.updateMany({
+          where: { id: data.recipientId, status: "SENDING" },
+          data: { status: "SENT", sentAt: new Date(), errorCode: null, errorDetail: null },
+        });
+        if (moved.count > 0) {
+          await markSimUsed(sim.id, new Date());
         }
         return { dispatched: true };
       } catch (err) {

@@ -144,7 +144,7 @@ export async function heartbeat(
 
   if (wasOffline) {
     import("../queues/smsQueue.js")
-      .then(({ requeueStuckRecipients }) => requeueStuckRecipients({ take: 25 }))
+      .then(({ requeueStuckRecipients }) => requeueStuckRecipients({ take: 3 }))
       .then((n) => {
         if (n > 0) logger.info({ n, deviceId }, "SMS file reprise (téléphone online)");
       })

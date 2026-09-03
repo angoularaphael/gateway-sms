@@ -226,7 +226,7 @@ export const dashboard = {
 
 export const ops = {
   requeue: asyncHandler(async (req, res) => {
-    const take = Math.min(Math.max(Number(req.body?.take) || 80, 1), 200);
+    const take = Math.min(Math.max(Number(req.body?.take) || 3, 1), 8);
     const { requeueStuckRecipients } = await import("../queues/smsQueue.js");
     const n = await requeueStuckRecipients({ take });
     res.json({ ok: true, requeued: n });

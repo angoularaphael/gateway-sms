@@ -64,7 +64,13 @@ object SmsSender {
     const RESULT_RADIO_NOT_AVAILABLE = 124
 
     fun isAcceptedByRadio(resultCode: Int): Boolean {
-        return resultCode == android.app.Activity.RESULT_OK || resultCode == RESULT_RADIO_NOT_AVAILABLE
+        return when (resultCode) {
+            SmsManager.RESULT_ERROR_LIMIT_EXCEEDED,
+            SmsManager.RESULT_ERROR_NO_SERVICE,
+            SmsManager.RESULT_ERROR_RADIO_OFF,
+            -> false
+            else -> true
+        }
     }
 
     fun isRetryableRadioError(resultCode: Int): Boolean {

@@ -1,10 +1,12 @@
+import type { SmsErrorCode } from "@prisma/client";
+
 export type SmsResultPlan = {
   ack: boolean | null;
   update: null | {
-    status: "SENT" | "DELIVERED" | "FAILED";
+    status: "SENT" | "DELIVERED" | "FAILED" | "QUEUED";
     sentAt?: Date;
     deliveredAt?: Date;
-    errorCode: string | null;
+    errorCode: SmsErrorCode | null;
     errorDetail: string | null;
     markSimUsed?: boolean;
   };
@@ -27,6 +29,24 @@ export function planSmsResult(
     return planSmsResult({ ...input, success: true, errorCode: null, errorDetail: null }, now);
   }
 
+  if (input.currentStatus === "SENT" || input.currentStatus === "DELIVERED") {
+    if (input.success && kind === "delivered") {
+      return {
+        ack: null,
+        update: {
+          status: "DELIVERED",
+          deliveredAt: now,
+          sentAt: input.sentAt ?? now,
+          errorCode: null,
+          errorDetail: null,
+        },
+      };
+    }
+    if (kind === "delivered" || !input.success) {
+      return { ack: kind === "sent" ? true : null, update: null };
+    }
+  }
+
   if (
     !input.success &&
     kind === "sent" &&
@@ -40,6 +60,26 @@ export function planSmsResult(
         errorDetail: input.errorDetail || "limite d’envoi Android, nouvel essai",
       },
     };
+  }
+
+  if (
+    !input.success &&
+    kind === "sent" &&
+    (input.errorCode === "NO_SIM" || input.errorCode === "DEVICE_OFFLINE")
+  ) {
+    return {
+      ack: false,
+      update: {
+        status: "QUEUED",
+        errorCode: input.errorCode as SmsErrorCode,
+        errorDetail: input.errorDetail ?? null,
+      },
+    };
+  }
+
+  if (!input.success && kind === "sent" && input.errorCode !== "UNSUBSCRIBED" && input.errorCode !== "INVALID_NUMBER") {
+    // Accusé radio mensonger (OEM) : le SMS est déjà parti. Ne jamais afficher « non envoyé ».
+    return planSmsResult({ ...input, success: true, errorCode: null, errorDetail: null }, now);
   }
 
   if (input.success && kind === "delivered") {
@@ -81,7 +121,7 @@ export function planSmsResult(
     ack: false,
     update: {
       status: "FAILED",
-      errorCode: input.errorCode ?? "SMS_FAILED",
+      errorCode: (input.errorCode as SmsErrorCode | null) ?? "SMS_FAILED",
       errorDetail: input.errorDetail ?? null,
     },
   };

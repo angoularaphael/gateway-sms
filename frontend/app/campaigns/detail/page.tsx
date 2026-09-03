@@ -307,7 +307,7 @@ function CampaignDetail() {
                             : r.status === "QUEUED"
                               ? "En file"
                               : r.status}
-                    {r.errorDetail ? ` · ${r.errorDetail}` : ""}
+                    {r.status === "FAILED" && r.errorDetail ? ` · ${r.errorDetail}` : ""}
                   </td>
                   <td className="px-4 py-2">{r.simLine ? `SIM ${r.simLine.slot}` : "—"}</td>
                   <td className="px-4 py-2">{r.deliveredAt ? new Date(r.deliveredAt).toLocaleString("fr-FR") : "—"}</td>

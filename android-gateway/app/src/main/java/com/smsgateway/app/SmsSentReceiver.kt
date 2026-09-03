@@ -7,7 +7,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
-import android.provider.Telephony
 import android.telephony.SmsManager
 import kotlin.concurrent.thread
 
@@ -59,7 +58,6 @@ class SmsSentReceiver : BroadcastReceiver() {
     }
 
     private fun persistSent(context: Context, intent: Intent) {
-        if (context.packageName != Telephony.Sms.getDefaultSmsPackage(context)) return
         val dest = intent.getStringExtra(SmsSender.EXTRA_PHONE) ?: return
         val body = intent.getStringExtra(SmsSender.EXTRA_MESSAGE) ?: return
         runCatching {

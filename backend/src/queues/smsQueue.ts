@@ -1,5 +1,6 @@
 import { Queue } from "bullmq";
 import IORedis from "ioredis";
+import type { Prisma, SmsErrorCode } from "@prisma/client";
 import { config } from "../config.js";
 import { QUEUE_SMS, isContestSms, type SmsJob } from "../utils/campaign.js";
 import { logger } from "../utils/logger.js";
@@ -83,7 +84,7 @@ export async function requeueStuckRecipients(
   opts: { take?: number; queuedOnly?: boolean } = {},
 ): Promise<number> {
   if (redisCommandsBlocked()) return 0;
-  const take = Math.max(1, Math.min(opts.take ?? 25, 200));
+  const take = Math.max(1, Math.min(opts.take ?? 3, 8));
   const { prisma } = await import("../utils/prisma.js");
   const online = await prisma.device.count({ where: { status: "ONLINE" } });
   if (online === 0) return 0;
@@ -107,21 +108,22 @@ export async function requeueStuckRecipients(
     });
   }
 
-  const statusWhere = opts.queuedOnly
-    ? { status: "QUEUED" as const }
+  const retryErrors: SmsErrorCode[] = ["SMS_FAILED", "DEVICE_OFFLINE", "RATE_LIMIT", "NO_SIM"];
+  const statusWhere: Prisma.CampaignRecipientWhereInput = opts.queuedOnly
+    ? { status: "QUEUED" }
     : {
         OR: [
-          { status: "QUEUED" as const },
-          { status: "SENDING" as const },
+          { status: "QUEUED" },
+          { status: "SENDING" },
           {
-            status: "FAILED" as const,
-            errorCode: { in: ["SMS_FAILED", "DEVICE_OFFLINE", "RATE_LIMIT", "NO_SIM"] },
+            status: "FAILED",
+            errorCode: { in: retryErrors },
             attempts: { lt: 10 },
           },
         ],
       };
 
-  const contestWhere = {
+  const contestWhere: Prisma.CampaignRecipientWhereInput = {
     OR: [
       { campaign: { name: { startsWith: "Concours SMS" } } },
       { message: { contains: "jeu concours", mode: "insensitive" } },

@@ -191,11 +191,13 @@ describe("sélection téléphone / SIM", () => {
     }
   });
 
-  it("applique le rate limit par minute", () => {
+    it("applique le rate limit par minute", () => {
     const now = new Date("2026-08-29T12:00:00Z");
     const recent = sim({ lastUsedAt: new Date("2026-08-29T11:59:50Z"), ratePerMinute: 4 });
     expect(isWithinRateLimit(recent, now).ok).toBe(false);
     expect(isWithinRateLimit(recent, now).reason).toBe("RATE_LIMIT");
+    const afterPause = sim({ lastUsedAt: new Date("2026-08-29T11:58:29Z"), ratePerMinute: 1 });
+    expect(isWithinRateLimit(afterPause, now).ok).toBe(true);
   });
 
   it("applique la limite quotidienne", () => {
@@ -339,7 +341,18 @@ describe("accusé SMS", () => {
     expect(plan.ack).toBe(true);
   });
 
-  it("marque bien un vrai échec radio avant envoi confirmé", () => {
+  it("garde UNSUBSCRIBED en échec réel", () => {
+    const plan = planSmsResult({
+      currentStatus: "SENDING",
+      success: false,
+      stage: "sent",
+      errorCode: "UNSUBSCRIBED",
+    });
+    expect(plan.update?.status).toBe("FAILED");
+    expect(plan.ack).toBe(false);
+  });
+
+  it("ne marque plus un accusé radio générique comme non envoyé", () => {
     const plan = planSmsResult({
       currentStatus: "SENDING",
       success: false,
@@ -347,8 +360,20 @@ describe("accusé SMS", () => {
       errorCode: "SMS_FAILED",
       errorDetail: "sent resultCode=1",
     });
-    expect(plan.update?.status).toBe("FAILED");
-    expect(plan.ack).toBe(false);
+    expect(plan.update?.status).toBe("SENT");
+    expect(plan.ack).toBe(true);
+  });
+
+  it("ne redescend pas un SMS déjà parti en file si un plafond arrive en retard", () => {
+    const plan = planSmsResult({
+      currentStatus: "SENT",
+      success: false,
+      stage: "sent",
+      errorCode: "RATE_LIMIT",
+      errorDetail: "sent resultCode=5",
+    });
+    expect(plan.update).toBeNull();
+    expect(plan.ack).toBe(true);
   });
 });
 

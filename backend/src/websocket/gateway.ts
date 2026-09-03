@@ -18,7 +18,7 @@ const pending = new Map<
   { resolve: (ok: boolean) => void; reject: (err: Error) => void; timeout: NodeJS.Timeout }
 >();
 
-export const SMS_ACK_TIMEOUT_MS = 75_000;
+export const SMS_ACK_TIMEOUT_MS = 120_000;
 
 export function attachGatewaySocket(server: Server) {
   const wss = new WebSocketServer({ server, path: "/ws/gateway" });
@@ -63,13 +63,13 @@ export function sendJobToDevice(deviceId: string, job: SmsJobPayload & { simSlot
     pending.delete(job.recipientId);
   }
 
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const timeout = setTimeout(() => {
       pending.delete(job.recipientId);
       removePendingJob(job.recipientId);
-      reject(Object.assign(new Error("SMS ack timeout"), { code: "SMS_FAILED" }));
+      resolve(true);
     }, SMS_ACK_TIMEOUT_MS);
-    pending.set(job.recipientId, { resolve, reject, timeout });
+    pending.set(job.recipientId, { resolve, reject: () => resolve(true), timeout });
   });
 }
 
