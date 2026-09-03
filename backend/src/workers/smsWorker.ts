@@ -86,14 +86,11 @@ export function startSmsWorker() {
       });
 
       if (!selection.ok) {
-        if (selection.error === "DEVICE_OFFLINE") {
-          await prisma.campaignRecipient.update({
-            where: { id: data.recipientId },
-            data: { status: "QUEUED", errorCode: "DEVICE_OFFLINE" },
-          });
-          return { skipped: "DEVICE_OFFLINE" };
-        }
-        await job.moveToDelayed(Date.now() + 90_000, token);
+        await prisma.campaignRecipient.update({
+          where: { id: data.recipientId },
+          data: { status: "QUEUED", errorCode: selection.error },
+        });
+        await job.moveToDelayed(Date.now() + (selection.error === "DEVICE_OFFLINE" ? 15_000 : 90_000), token);
         throw new DelayedError();
       }
 

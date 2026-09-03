@@ -60,6 +60,14 @@ export async function enqueueSmsJobs(
   const queue = getSmsQueue();
   for (const data of jobs) {
     try {
+      const existing = await queue.getJob(data.recipientId);
+      if (existing) {
+        try {
+          await existing.remove();
+        } catch {
+          /* job actif : on tentera add, ignoré si déjà en file */
+        }
+      }
       await queue.add("send-sms", data, {
         attempts: Math.max(config.smsJobAttempts, 1),
         backoff: { type: "exponential", delay: config.smsJobBackoffMs },
