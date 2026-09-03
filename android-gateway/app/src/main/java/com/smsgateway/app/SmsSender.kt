@@ -61,7 +61,7 @@ object SmsSender {
     }
 
     /** RESULT_RADIO_NOT_AVAILABLE : le SMS est souvent déjà parti, l’accusé radio ment. */
-    const RESULT_RADIO_NOT_AVAILABLE = 124
+    const val RESULT_RADIO_NOT_AVAILABLE = 124
 
     fun isAcceptedByRadio(resultCode: Int): Boolean {
         return when (resultCode) {
