@@ -135,8 +135,10 @@ class MainActivity : AppCompatActivity() {
     private fun openSmsDefaultSettings(): Boolean {
         val intents = mutableListOf<Intent>()
         if (Build.VERSION.SDK_INT >= 33) {
-            intents += Intent(Settings.ACTION_MANAGE_DEFAULT_APP).putExtra(
-                Settings.EXTRA_ROLE_NAME,
+            // String literals: ACTION_MANAGE_DEFAULT_APP / EXTRA_ROLE_NAME are API 33
+            // and the CI android.jar does not always expose them at compile time.
+            intents += Intent("android.settings.MANAGE_DEFAULT_APP").putExtra(
+                "android.provider.extra.ROLE_NAME",
                 RoleManager.ROLE_SMS,
             )
         }
