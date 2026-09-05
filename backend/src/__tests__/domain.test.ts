@@ -329,16 +329,18 @@ describe("accusé SMS", () => {
     expect(plan.ack).toBe(false);
   });
 
-  it("laisse en file un accusé radio 124 au lieu de le marquer envoyé", () => {
-    const plan = planSmsResult({
-      currentStatus: "SENDING",
-      success: false,
-      stage: "sent",
-      errorCode: "SMS_FAILED",
-      errorDetail: "sent resultCode=124",
-    });
-    expect(plan.update?.status).toBe("QUEUED");
-    expect(plan.ack).toBe(false);
+  it("marque envoyé un accusé radio 124/111 après envoi sans accusé Android", () => {
+    for (const code of [124, 111]) {
+      const plan = planSmsResult({
+        currentStatus: "SENDING",
+        success: false,
+        stage: "sent",
+        errorCode: "SMS_FAILED",
+        errorDetail: `sent resultCode=${code}`,
+      });
+      expect(plan.update?.status).toBe("SENT");
+      expect(plan.ack).toBe(true);
+    }
   });
 
   it("garde UNSUBSCRIBED en échec réel", () => {

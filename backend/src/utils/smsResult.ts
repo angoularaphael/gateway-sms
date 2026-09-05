@@ -44,6 +44,24 @@ export function planSmsResult(
     }
   }
 
+  // Android envoie quand même le SMS sans accusé (bare send) puis signale un faux échec radio.
+  if (
+    !input.success &&
+    kind === "sent" &&
+    /sent resultCode=(111|124)\b/.test(input.errorDetail || "")
+  ) {
+    return {
+      ack: true,
+      update: {
+        status: "SENT",
+        sentAt: input.sentAt ?? now,
+        errorCode: null,
+        errorDetail: "radio accusé faux positif — SMS parti",
+        markSimUsed: input.currentStatus !== "SENT",
+      },
+    };
+  }
+
   if (
     !input.success &&
     kind === "sent" &&
