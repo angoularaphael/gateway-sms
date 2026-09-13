@@ -42,6 +42,39 @@ function loadRootEnv() {
   }
 }
 
+function rewriteEnvRedisUrl(file, url) {
+  if (!fs.existsSync(file)) return;
+  let text = fs.readFileSync(file, "utf8");
+  if (/^REDIS_URL=/m.test(text)) {
+    text = text.replace(/^REDIS_URL=.*$/m, `REDIS_URL=${url}`);
+  } else {
+    text += `\nREDIS_URL=${url}\n`;
+  }
+  if (/^REDIS_EMBEDDED=/m.test(text)) {
+    text = text.replace(/^REDIS_EMBEDDED=.*$/m, "REDIS_EMBEDDED=1");
+  } else {
+    text += "REDIS_EMBEDDED=1\n";
+  }
+  fs.writeFileSync(file, text);
+}
+
+async function startEmbeddedRedis() {
+  const helper = path.join(APP_DIR, "bothosting", "local-redis.js");
+  if (!fs.existsSync(helper)) {
+    console.warn("[sms-gateway bootstrap] bothosting/local-redis.js absent — Redis au démarrage API");
+    return;
+  }
+  const { shouldUseEmbeddedRedis, startLocalRedis } = require(helper);
+  if (!shouldUseEmbeddedRedis()) {
+    console.log("[sms-gateway bootstrap] Redis distant (REDIS_EMBEDDED=0)");
+    return;
+  }
+  const { url } = await startLocalRedis();
+  process.env.REDIS_URL = url;
+  process.env.REDIS_EMBEDDED = "1";
+  if (fs.existsSync(ROOT_ENV)) rewriteEnvRedisUrl(ROOT_ENV, url);
+}
+
 function run(cmd, cwd = ROOT) {
   console.log(`> ${cmd}`);
   const env = {
@@ -81,50 +114,60 @@ function cloneOrUpdate() {
   }
 }
 
-loadRootEnv();
-const PORT = resolvePort();
-process.env.PORT = PORT;
-process.env.SERVER_PORT = process.env.SERVER_PORT || PORT;
-process.env.HOST = process.env.HOST || "0.0.0.0";
-process.env.NODE_ENV = process.env.NODE_ENV || "production";
+async function main() {
+  loadRootEnv();
+  if (process.env.REDIS_EMBEDDED !== "0") process.env.REDIS_EMBEDDED = "1";
 
-console.log("=== SMS GATEWAY — BOT HOSTING ===");
-console.log(`repo  ${GITHUB_REPO_URL}#${BRANCH}`);
-console.log(`app   ${APP_DIR}`);
-console.log(`port  ${PORT}`);
+  const PORT = resolvePort();
+  process.env.PORT = PORT;
+  process.env.SERVER_PORT = process.env.SERVER_PORT || PORT;
+  process.env.HOST = process.env.HOST || "0.0.0.0";
+  process.env.NODE_ENV = process.env.NODE_ENV || "production";
 
-cloneOrUpdate();
+  console.log("=== SMS GATEWAY — BOT HOSTING ===");
+  console.log(`repo  ${GITHUB_REPO_URL}#${BRANCH}`);
+  console.log(`app   ${APP_DIR}`);
+  console.log(`port  ${PORT}`);
 
-if (fs.existsSync(ROOT_ENV)) {
-  fs.copyFileSync(ROOT_ENV, path.join(BACKEND_DIR, ".env"));
-  console.log("[sms-gateway bootstrap] .env copié vers backend/");
+  cloneOrUpdate();
+  await startEmbeddedRedis();
+
+  if (fs.existsSync(ROOT_ENV)) {
+    fs.copyFileSync(ROOT_ENV, path.join(BACKEND_DIR, ".env"));
+    console.log("[sms-gateway bootstrap] .env copié vers backend/");
+  }
+
+  const hasModules = fs.existsSync(path.join(BACKEND_DIR, "node_modules", "express"));
+  if (!hasModules) {
+    run("npm install --omit=dev --no-audit --no-fund --ignore-scripts", BACKEND_DIR);
+  } else {
+    console.log("[sms-gateway bootstrap] node_modules déjà présent, npm install sauté");
+  }
+
+  run("npx prisma generate", BACKEND_DIR);
+  run("npx prisma migrate deploy", BACKEND_DIR);
+  try {
+    run("npm run prisma:seed", BACKEND_DIR);
+  } catch (err) {
+    console.warn("[sms-gateway bootstrap] seed ignoré:", err.message);
+  }
+
+  if (!fs.existsSync(path.join(DASHBOARD_DIR, "index.html"))) {
+    console.warn("[sms-gateway bootstrap] dashboard/index.html introuvable — API seule");
+  }
+
+  process.env.FRONTEND_DIR = DASHBOARD_DIR;
+  console.log("[sms-gateway bootstrap] démarrage API + dashboard…");
+  process.chdir(BACKEND_DIR);
+  require("child_process").execSync("npx tsx src/index.ts", {
+    cwd: BACKEND_DIR,
+    stdio: "inherit",
+    env: { ...process.env, NODE_OPTIONS: process.env.NODE_OPTIONS || "--max-old-space-size=384" },
+    shell: true,
+  });
 }
 
-const hasModules = fs.existsSync(path.join(BACKEND_DIR, "node_modules", "express"));
-if (!hasModules) {
-  run("npm install --omit=dev --no-audit --no-fund --ignore-scripts", BACKEND_DIR);
-} else {
-  console.log("[sms-gateway bootstrap] node_modules déjà présent, npm install sauté");
-}
-
-run("npx prisma generate", BACKEND_DIR);
-run("npx prisma migrate deploy", BACKEND_DIR);
-try {
-  run("npm run prisma:seed", BACKEND_DIR);
-} catch (err) {
-  console.warn("[sms-gateway bootstrap] seed ignoré:", err.message);
-}
-
-if (!fs.existsSync(path.join(DASHBOARD_DIR, "index.html"))) {
-  console.warn("[sms-gateway bootstrap] dashboard/index.html introuvable — API seule");
-}
-
-process.env.FRONTEND_DIR = DASHBOARD_DIR;
-console.log("[sms-gateway bootstrap] démarrage API + dashboard…");
-process.chdir(BACKEND_DIR);
-require("child_process").execSync("npx tsx src/index.ts", {
-  cwd: BACKEND_DIR,
-  stdio: "inherit",
-  env: { ...process.env, NODE_OPTIONS: process.env.NODE_OPTIONS || "--max-old-space-size=384" },
-  shell: true,
+main().catch((err) => {
+  console.error("[sms-gateway bootstrap] échec:", err && err.message ? err.message : err);
+  process.exit(1);
 });

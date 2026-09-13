@@ -28,7 +28,9 @@ export const config = {
   corsOrigin: process.env.CORS_ORIGIN ?? process.env.API_URL ?? process.env.FRONTEND_URL ?? "http://localhost:3000",
   frontendDir: process.env.FRONTEND_DIR ?? "",
   databaseUrl: required("DATABASE_URL", "postgresql://sms:sms@localhost:5432/sms_gateway?schema=public"),
-  redisUrl: required("REDIS_URL", "redis://localhost:6379"),
+  get redisUrl() {
+    return required("REDIS_URL", "redis://localhost:6379");
+  },
   jwtSecret: required("JWT_SECRET", "dev-only-change-me"),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? "7d",
   deviceOfflineAfterSeconds: integer("DEVICE_OFFLINE_AFTER_SECONDS", 90),

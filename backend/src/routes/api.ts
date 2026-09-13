@@ -2,6 +2,7 @@ import { Router } from "express";
 import multer from "multer";
 import { authJwt, authJwtOrOutbound, authDevice } from "../middleware/auth.js";
 import { auth, contacts, unsubscribes, devices, campaigns, dashboard, outbound, ops } from "../controllers/index.js";
+import { config } from "../config.js";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
@@ -54,5 +55,9 @@ api.post("/messages/send", authJwtOrOutbound, outbound.send);
 api.post("/send-message", authJwtOrOutbound, outbound.send);
 
 api.get("/health", (_req, res) => {
-  res.json({ ok: true });
+  const redisUrl = config.redisUrl;
+  res.json({
+    ok: true,
+    redis: /127\.0\.0\.1|localhost/i.test(redisUrl) ? "local" : "remote",
+  });
 });

@@ -7,8 +7,10 @@ import { startSmsWorker } from "./workers/smsWorker.js";
 import { markStaleDevicesOffline } from "./services/deviceService.js";
 import { prisma } from "./utils/prisma.js";
 import { startCampaign } from "./services/campaignService.js";
+import { ensureLocalRedis } from "./embeddedRedis.js";
 
 async function main() {
+  await ensureLocalRedis();
   const app = createApp();
   const server = createServer(app);
   attachGatewaySocket(server);

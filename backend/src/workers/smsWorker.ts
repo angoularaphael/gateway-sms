@@ -157,6 +157,7 @@ export function startSmsWorker() {
       lockDuration: 120_000,
       stalledInterval: 120_000,
       maxStalledCount: 1,
+      drainDelay: 2000,
     },
   );
 

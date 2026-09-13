@@ -151,13 +151,15 @@ Couverture : import CSV, numéros FR, doublons, désinscription, campagnes, sél
 ## Production Bot Hosting (sans Android Studio)
 
 1. Créer une base **Supabase** (`DATABASE_URL`).
-2. Créer un Redis **Upstash** (`REDIS_URL`).
+2. **Redis local dans le container** (recommandé) : `REDIS_EMBEDDED=1` et `REDIS_URL=redis://127.0.0.1:16379`. Ne plus utiliser Upstash (plafond 500 000 commandes / mois). Le bootstrap télécharge `redis-server` au premier lancement.
 3. Egg Node 22. Le panel **ne compile pas** Next.js (OOM) : le dashboard est déjà dans `dashboard/`.
 4. Uploader `bothosting/bootstrap.js` → `/home/container/index.js`.
-5. Coller `bothosting/env.local` dans `/home/container/.env`.
-6. Startup panel : `node index.js`.
+5. Coller `bothosting/env.bothosting` (valeurs réelles) dans `/home/container/.env`.
+6. Startup panel : `node index.js`. Au log : `Redis local … (pas de quota Upstash)`.
 7. APK téléphone : GitHub → **Actions** → **Build Android APK** → *Run workflow* → télécharger l’artifact `sms-gateway-apk`.
 8. Sur le téléphone : autoriser sources inconnues, installer l’APK, coller l’URL publique du panel (`http://HOTE:PORT`), Device ID et clé API.
+
+Pour forcer l’ancien Redis distant : `REDIS_EMBEDDED=0` (déconseillé).
 
 Les SMS partent toujours des téléphones, pas du serveur.
 
