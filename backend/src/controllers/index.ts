@@ -6,7 +6,7 @@ import * as deviceService from "../services/deviceService.js";
 import * as campaignService from "../services/campaignService.js";
 import * as outboundService from "../services/outboundService.js";
 import { prisma } from "../utils/prisma.js";
-import { markSimUsed } from "../workers/smsWorker.js";
+import { markSimUsed, parkSimAfterOperatorLimit } from "../workers/smsWorker.js";
 import { maybeCompleteCampaign } from "../services/campaignService.js";
 import { resolveJobAck } from "../websocket/gateway.js";
 import { planSmsResult } from "../utils/smsResult.js";
@@ -136,6 +136,9 @@ export const devices = {
       });
       if (plan.update.markSimUsed && recipient.simLineId) {
         await markSimUsed(recipient.simLineId, new Date());
+      }
+      if (plan.update.parkSim && recipient.simLineId) {
+        await parkSimAfterOperatorLimit(recipient.simLineId);
       }
     }
     if (plan.ack !== null) resolveJobAck(recipientId, plan.ack);

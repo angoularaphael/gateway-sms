@@ -9,6 +9,7 @@ export type SmsResultPlan = {
     errorCode: SmsErrorCode | null;
     errorDetail: string | null;
     markSimUsed?: boolean;
+    parkSim?: boolean;
   };
 };
 
@@ -73,6 +74,7 @@ export function planSmsResult(
         status: "QUEUED",
         errorCode: "RATE_LIMIT",
         errorDetail: input.errorDetail || "limite d’envoi Android, nouvel essai",
+        parkSim: true,
       },
     };
   }

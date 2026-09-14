@@ -12,6 +12,12 @@ export function sentTodayCount(sim: Pick<SelectableSim, "sentToday" | "sentToday
   return sim.sentToday;
 }
 
+export const OPERATOR_PARK_MS = 3 * 60 * 60 * 1000;
+
+export function parkSimUntil(now: Date): Date {
+  return new Date(now.getTime() + OPERATOR_PARK_MS);
+}
+
 export function isWithinRateLimit(sim: SelectableSim, now: Date): { ok: boolean; reason?: "RATE_LIMIT" } {
   const today = sentTodayCount(sim, now);
   if (today >= sim.dailyLimit) {
@@ -49,11 +55,13 @@ export function selectSimLine(
   let candidates = online;
   if (options.preferredDevice) {
     const preferred = candidates.filter((s) => s.deviceId === options.preferredDevice);
-    if (preferred.length > 0) candidates = preferred;
+    const preferredOk = preferred.filter((s) => isWithinRateLimit(s, now).ok);
+    if (preferredOk.length > 0) candidates = preferred;
   }
   if (options.preferredSim !== undefined) {
     const preferredSlot = candidates.filter((s) => s.slot === options.preferredSim);
-    if (preferredSlot.length > 0) candidates = preferredSlot;
+    const slotOk = preferredSlot.filter((s) => isWithinRateLimit(s, now).ok);
+    if (slotOk.length > 0) candidates = preferredSlot;
   }
 
   const available = candidates.filter((s) => isWithinRateLimit(s, now).ok);

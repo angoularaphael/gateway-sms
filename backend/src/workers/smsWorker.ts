@@ -1,6 +1,6 @@
 import { Worker, DelayedError } from "bullmq";
 import { QUEUE_SMS, isAllowedOutboundSms, shouldRetry } from "../utils/campaign.js";
-import { selectSimLine } from "../utils/simSelector.js";
+import { selectSimLine, parkSimUntil } from "../utils/simSelector.js";
 import { getRedis } from "../queues/smsQueue.js";
 import { prisma } from "../utils/prisma.js";
 import { getOnlineSelectableSims } from "../services/deviceService.js";
@@ -14,6 +14,14 @@ import type { SmsJobPayload } from "../types.js";
 
 function startOfUtcDay(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
+
+async function parkSimAfterOperatorLimit(simId: string, now = new Date()) {
+  await prisma.simLine.update({
+    where: { id: simId },
+    data: { lastUsedAt: parkSimUntil(now) },
+  });
+  logger.warn({ simId }, "SIM mise de côté 3 h — plafond opérateur (resultCode 5)");
 }
 
 async function markSimUsed(simId: string, now: Date) {
@@ -98,7 +106,8 @@ export function startSmsWorker() {
           where: { id: data.recipientId },
           data: { status: "QUEUED", errorCode: selection.error },
         });
-        await job.moveToDelayed(Date.now() + (selection.error === "DEVICE_OFFLINE" ? 15_000 : 90_000), token);
+        const waitMs = selection.error === "DEVICE_OFFLINE" ? 15_000 : 15 * 60_000;
+        await job.moveToDelayed(Date.now() + waitMs, token);
         throw new DelayedError();
       }
 
@@ -122,6 +131,24 @@ export function startSmsWorker() {
             return { dispatched: true };
           }
           const code = latest?.errorCode ?? "SMS_FAILED";
+          if (code === "RATE_LIMIT" && sim.id) {
+            await parkSimAfterOperatorLimit(sim.id);
+            try {
+              await job.updateData({
+                ...data,
+                preferredDevice: undefined,
+                preferredSim: undefined,
+              });
+            } catch {
+              /* job data leftover — la SIM bloquée n’est plus choisie */
+            }
+            await prisma.campaignRecipient.updateMany({
+              where: { id: data.recipientId, status: { in: ["FAILED", "SENDING"] } },
+              data: { status: "QUEUED", errorCode: "RATE_LIMIT" },
+            });
+            await job.moveToDelayed(Date.now() + 3_000, token);
+            throw new DelayedError();
+          }
           if (code === "RATE_LIMIT" || code === "NO_SIM" || shouldRetry(code, latest?.attempts ?? job.attemptsMade + 1, config.smsJobAttempts)) {
             await prisma.campaignRecipient.updateMany({
               where: { id: data.recipientId, status: { in: ["FAILED", "SENDING"] } },
@@ -176,4 +203,4 @@ export function startSmsWorker() {
   return worker;
 }
 
-export { markSimUsed };
+export { markSimUsed, parkSimAfterOperatorLimit };

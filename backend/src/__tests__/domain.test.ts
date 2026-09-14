@@ -3,7 +3,7 @@ import { normalizeFrenchPhone, validatePhone, isUnsubscribeKeyword } from "../ut
 import { parseContactsCsv, findDuplicates } from "../utils/csv.js";
 import { interpolateMessage, estimateSms, estimateCampaignSms, toGsmSafe } from "../utils/template.js";
 import { excludeUnsubscribed, isUnsubscribed } from "../utils/unsubscribe.js";
-import { selectSimLine, isWithinRateLimit, sentTodayCount } from "../utils/simSelector.js";
+import { selectSimLine, isWithinRateLimit, sentTodayCount, parkSimUntil } from "../utils/simSelector.js";
 import { canTransition, buildSmsJob, shouldRetry, isRetryableStuckRecipient, isContestSms, isContestConfirmationSms, isOffreDuoReferralSms, isAllowedOutboundSms } from "../utils/campaign.js";
 import { planSmsResult } from "../utils/smsResult.js";
 import type { SelectableSim } from "../types.js";
@@ -191,7 +191,37 @@ describe("sélection téléphone / SIM", () => {
     }
   });
 
-    it("applique le rate limit par minute", () => {
+  it("si la SIM préférée est plafonnée, bascule sur une autre", () => {
+    const now = new Date("2026-08-29T12:00:00Z");
+    const blocked = sim({
+      deviceId: "ANDROID-001",
+      slot: 1,
+      sentToday: 48,
+      sentTodayDate: now,
+      dailyLimit: 48,
+    });
+    const other = sim({
+      id: "sim-2",
+      deviceId: "ANDROID-002",
+      deviceDbId: "dev-db-2",
+      slot: 1,
+    });
+    const result = selectSimLine([blocked, other], {
+      preferredDevice: "ANDROID-001",
+      preferredSim: 1,
+      now,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.sim.deviceId).toBe("ANDROID-002");
+  });
+
+  it("une SIM mise de côté par l’opérateur n’est plus choisie", () => {
+    const now = new Date("2026-08-29T12:00:00Z");
+    const parked = sim({ lastUsedAt: parkSimUntil(now) });
+    expect(isWithinRateLimit(parked, now).ok).toBe(false);
+  });
+
+  it("applique le rate limit par minute", () => {
     const now = new Date("2026-08-29T12:00:00Z");
     const recent = sim({ lastUsedAt: new Date("2026-08-29T11:59:50Z"), ratePerMinute: 4 });
     expect(isWithinRateLimit(recent, now).ok).toBe(false);
@@ -356,6 +386,7 @@ describe("accusé SMS", () => {
     });
     expect(plan.update?.status).toBe("QUEUED");
     expect(plan.update?.errorCode).toBe("RATE_LIMIT");
+    expect(plan.update?.parkSim).toBe(true);
     expect(plan.ack).toBe(false);
   });
 
