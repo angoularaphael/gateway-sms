@@ -9,9 +9,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
-import android.os.Handler
 import android.os.IBinder
-import android.os.Looper
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import androidx.core.app.NotificationCompat
@@ -20,8 +18,10 @@ import androidx.core.content.ContextCompat
 import org.json.JSONObject
 import java.time.LocalDate
 import java.util.Collections
-import java.util.Timer
-import java.util.TimerTask
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 object JobGuard {
     private val inFlight = Collections.synchronizedSet(mutableSetOf<String>())
@@ -34,10 +34,10 @@ object JobGuard {
 }
 
 class GatewayService : Service() {
-    private var timer: Timer? = null
+    private var scheduler: ScheduledExecutorService? = null
     private lateinit var prefs: Prefs
     private lateinit var client: GatewayClient
-    private val mainHandler = Handler(Looper.getMainLooper())
+    private val tickRunning = AtomicBoolean(false)
 
     override fun onCreate() {
         super.onCreate()
@@ -45,15 +45,23 @@ class GatewayService : Service() {
         client = GatewayClient(prefs)
         createChannel()
         startFg("Connexion…")
-        timer = Timer()
-        timer?.scheduleAtFixedRate(object : TimerTask() {
-            override fun run() = tick()
-        }, 0, 8_000)
+        val exec = Executors.newSingleThreadScheduledExecutor { r ->
+            Thread(r, "gateway-tick").apply { isDaemon = true }
+        }
+        scheduler = exec
+        exec.scheduleWithFixedDelay({ tick() }, 0, 8, TimeUnit.SECONDS)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startFg(if (StatusStore.connected) "Connecté" else "Connexion…")
         return START_STICKY
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        runCatching {
+            ContextCompat.startForegroundService(applicationContext, Intent(this, GatewayService::class.java))
+        }
     }
 
     private fun fgsType(): Int {
@@ -65,8 +73,11 @@ class GatewayService : Service() {
         val notification = notification(text)
         try {
             ServiceCompat.startForeground(this, 1, notification, fgsType())
-        } catch (_: Exception) {
-            if (Build.VERSION.SDK_INT >= 29) {
+            return
+        } catch (_: Throwable) {
+        }
+        if (Build.VERSION.SDK_INT >= 29) {
+            runCatching {
                 ServiceCompat.startForeground(
                     this,
                     1,
@@ -78,6 +89,7 @@ class GatewayService : Service() {
     }
 
     private fun tick() {
+        if (!tickRunning.compareAndSet(false, true)) return
         try {
             resetDailyIfNeeded()
             val tm = getSystemService(TelephonyManager::class.java)
@@ -91,22 +103,27 @@ class GatewayService : Service() {
                     @Suppress("DEPRECATION")
                     packageManager.getPackageInfo(packageName, 0).versionName
                 }
-                    }.getOrNull() ?: "1.0.9"
+            }.getOrNull() ?: "1.0.10"
 
-            client.heartbeat(version ?: "1.0.9", SimReader.toJson(sims))
+            client.heartbeat(version ?: "1.0.10", SimReader.toJson(sims))
             StatusStore.connected = true
             if (StatusStore.lastError.startsWith("HTTP") || StatusStore.lastError.contains("Connexion")) {
                 StatusStore.lastError = ""
+            }
+            if (System.currentTimeMillis() < StatusStore.pauseSendsUntil) {
+                return
             }
             val jobs = client.pendingJobs()
             if (jobs.length() > 0) {
                 handleJob(jobs.getJSONObject(0))
             }
-        } catch (err: Exception) {
+        } catch (err: Throwable) {
             StatusStore.connected = false
             StatusStore.lastError = err.message ?: err.javaClass.simpleName
+        } finally {
+            tickRunning.set(false)
+            startFg(if (StatusStore.connected) "Connecté" else "Hors ligne")
         }
-        startFg(if (StatusStore.connected) "Connecté" else "Hors ligne")
     }
 
     private fun handleJob(job: JSONObject) {
@@ -117,32 +134,33 @@ class GatewayService : Service() {
         val simSlot = nested.optInt("simSlot", 1)
         if (recipientId.isBlank() || phone.isBlank()) return
         if (prefs.wasSent(recipientId)) {
-            runCatching { client.smsResult(recipientId, true, stage = "sent") }
+            AppExecutors.net.execute {
+                runCatching { client.smsResult(recipientId, true, stage = "sent") }
+            }
             return
         }
         if (!JobGuard.begin(recipientId)) return
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) {
             JobGuard.complete(recipientId)
             StatusStore.lastError = "Permission SMS refusée"
-            client.smsResult(recipientId, false, "SMS_FAILED", "SEND_SMS permission denied", "sent")
+            AppExecutors.net.execute {
+                runCatching { client.smsResult(recipientId, false, "SMS_FAILED", "SEND_SMS permission denied", "sent") }
+            }
             return
         }
-        mainHandler.post {
+        val appContext = applicationContext
+        AppExecutors.sms.execute {
             try {
-                SmsSender.send(this, phone, message, recipientId, simSlot)
-            } catch (e: Exception) {
+                SmsSender.send(appContext, phone, message, recipientId, simSlot)
+            } catch (e: Throwable) {
                 JobGuard.complete(recipientId)
                 prefs.errors = prefs.errors + 1
                 StatusStore.lastError = e.message ?: e.javaClass.simpleName
-                threadReport(recipientId, e.message)
+                AppExecutors.net.execute {
+                    runCatching { client.smsResult(recipientId, false, "SMS_FAILED", e.message, "sent") }
+                }
             }
         }
-    }
-
-    private fun threadReport(recipientId: String, detail: String?) {
-        Thread {
-            runCatching { client.smsResult(recipientId, false, "SMS_FAILED", detail, "sent") }
-        }.start()
     }
 
     private fun resetDailyIfNeeded() {
@@ -154,7 +172,7 @@ class GatewayService : Service() {
     }
 
     private fun createChannel() {
-        val nm = getSystemService(NotificationManager::class.java)
+        val nm = getSystemService(NotificationManager::class.java) ?: return
         nm.createNotificationChannel(
             NotificationChannel("gateway", "SMS Gateway", NotificationManager.IMPORTANCE_LOW),
         )
@@ -170,8 +188,8 @@ class GatewayService : Service() {
     }
 
     override fun onDestroy() {
-        timer?.cancel()
-        timer = null
+        scheduler?.shutdownNow()
+        scheduler = null
         super.onDestroy()
     }
 
@@ -182,4 +200,5 @@ object StatusStore {
     @Volatile var connected: Boolean = false
     @Volatile var lastError: String = ""
     @Volatile var sims: List<SimInfo> = emptyList()
+    @Volatile var pauseSendsUntil: Long = 0
 }

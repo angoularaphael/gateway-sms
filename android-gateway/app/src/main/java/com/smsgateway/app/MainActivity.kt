@@ -78,11 +78,13 @@ class MainActivity : AppCompatActivity() {
                     StatusStore.connected = false
                     StatusStore.lastError = e.message ?: "Échec connexion serveur"
                     runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
                         Toast.makeText(this, StatusStore.lastError, Toast.LENGTH_LONG).show()
                     }
                     return@thread
                 }
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     requestPermissionsThenStart(true)
                     Toast.makeText(this, "Connexion lancée", Toast.LENGTH_SHORT).show()
                 }
@@ -105,12 +107,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun isDefaultSmsApp(): Boolean {
-        if (packageName == Telephony.Sms.getDefaultSmsPackage(this)) return true
-        if (Build.VERSION.SDK_INT >= 29) {
-            val rm = getSystemService(RoleManager::class.java)
-            if (rm != null && rm.isRoleHeld(RoleManager.ROLE_SMS)) return true
+        return try {
+            if (packageName == Telephony.Sms.getDefaultSmsPackage(this)) return true
+            if (Build.VERSION.SDK_INT >= 29) {
+                val rm = getSystemService(RoleManager::class.java)
+                if (rm != null && rm.isRoleHeld(RoleManager.ROLE_SMS)) return true
+            }
+            false
+        } catch (_: Exception) {
+            false
         }
-        return false
     }
 
     private fun requestDefaultSmsApp() {
@@ -221,41 +227,48 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderStatus() {
-        val tm = getSystemService(TelephonyManager::class.java)
-        val sm = getSystemService(SubscriptionManager::class.java)
-        val sims = if (StatusStore.sims.isNotEmpty()) StatusStore.sims else SimReader.read(tm, sm)
-        val sim1 = sims.firstOrNull { it.slot == 1 }
-        val sim2 = sims.firstOrNull { it.slot == 2 }
-        fun dot(sim: SimInfo?) = if (sim?.status == "READY") "🟢 Ready" else "🔴 ${sim?.status ?: "ABSENT"}"
-        val errorLine = if (StatusStore.lastError.isBlank()) "" else "\n\nDernière erreur:\n${StatusStore.lastError}"
-        val defaultLine = if (isDefaultSmsApp()) {
-            "Appli SMS par défaut : oui (pas de popup quota)"
-        } else if (Build.VERSION.SDK_INT >= 35) {
-            "Appli SMS par défaut : non\nAndroid 15 : Paramètres de l’appli → ⋮ → Autoriser les réglages restreints, puis reviens appuyer sur le bouton."
-        } else {
-            "Appli SMS par défaut : non — appuie sur le bouton ci-dessus"
+        try {
+            val tm = getSystemService(TelephonyManager::class.java)
+            val sm = getSystemService(SubscriptionManager::class.java)
+            val sims = if (StatusStore.sims.isNotEmpty()) StatusStore.sims else SimReader.read(tm, sm)
+            val sim1 = sims.firstOrNull { it.slot == 1 }
+            val sim2 = sims.firstOrNull { it.slot == 2 }
+            fun dot(sim: SimInfo?) = if (sim?.status == "READY") "🟢 Ready" else "🔴 ${sim?.status ?: "ABSENT"}"
+            val errorLine = if (StatusStore.lastError.isBlank()) "" else "\n\nDernière erreur:\n${StatusStore.lastError}"
+            val crashLine = if (prefs.lastCrash.isBlank()) "" else "\n\nDernier plantage:\n${prefs.lastCrash}"
+            val defaultLine = if (isDefaultSmsApp()) {
+                "Appli SMS par défaut : oui (pas de popup quota)"
+            } else if (Build.VERSION.SDK_INT >= 35) {
+                "Appli SMS par défaut : non\nAndroid 15 : Paramètres de l’appli → ⋮ → Autoriser les réglages restreints, puis reviens appuyer sur le bouton."
+            } else {
+                "Appli SMS par défaut : non — appuie sur le bouton ci-dessus"
+            }
+            findViewById<TextView>(R.id.statusText).text = """
+                Device:
+                ${prefs.deviceId.ifBlank { "—" }}
+
+                Connection:
+                ${if (StatusStore.connected) "🟢 Connected" else "🔴 Disconnected"}
+
+                $defaultLine
+
+                SIM 1:
+                ${dot(sim1)}
+
+                SIM 2:
+                ${dot(sim2)}
+
+                Messages today:
+                ${prefs.messagesToday}
+
+                Errors:
+                ${prefs.errors}
+                $errorLine$crashLine
+            """.trimIndent()
+        } catch (e: Exception) {
+            runCatching {
+                findViewById<TextView>(R.id.statusText).text = "Erreur affichage: ${e.message}"
+            }
         }
-        findViewById<TextView>(R.id.statusText).text = """
-            Device:
-            ${prefs.deviceId.ifBlank { "—" }}
-
-            Connection:
-            ${if (StatusStore.connected) "🟢 Connected" else "🔴 Disconnected"}
-
-            $defaultLine
-
-            SIM 1:
-            ${dot(sim1)}
-
-            SIM 2:
-            ${dot(sim2)}
-
-            Messages today:
-            ${prefs.messagesToday}
-
-            Errors:
-            ${prefs.errors}
-            $errorLine
-        """.trimIndent()
     }
 }

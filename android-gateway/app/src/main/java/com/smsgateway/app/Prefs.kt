@@ -29,6 +29,10 @@ class Prefs(context: Context) {
         get() = p.getString("lastDay", "") ?: ""
         set(value) { p.edit().putString("lastDay", value).apply() }
 
+    var lastCrash: String
+        get() = p.getString("lastCrash", "") ?: ""
+        set(value) { p.edit().putString("lastCrash", value).apply() }
+
     fun wasSent(recipientId: String): Boolean {
         return sentIdSet().contains(recipientId)
     }

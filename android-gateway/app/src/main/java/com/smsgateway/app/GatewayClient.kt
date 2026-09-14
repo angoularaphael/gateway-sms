@@ -10,10 +10,6 @@ import java.util.concurrent.TimeUnit
 
 class GatewayClient(private val prefs: Prefs) {
     private val jsonType = "application/json; charset=utf-8".toMediaType()
-    private val http = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .build()
 
     fun health(): String {
         return try {
@@ -109,5 +105,16 @@ class GatewayClient(private val prefs: Prefs) {
         val base = prefs.serverUrl.trim().trimEnd('/')
         val p = if (path.startsWith("/")) path else "/$path"
         return "$base$p"
+    }
+
+    companion object {
+        private val http: OkHttpClient by lazy {
+            OkHttpClient.Builder()
+                .connectTimeout(12, TimeUnit.SECONDS)
+                .readTimeout(20, TimeUnit.SECONDS)
+                .writeTimeout(20, TimeUnit.SECONDS)
+                .retryOnConnectionFailure(true)
+                .build()
+        }
     }
 }
