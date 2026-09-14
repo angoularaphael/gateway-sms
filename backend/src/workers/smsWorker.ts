@@ -1,5 +1,5 @@
 import { Worker, DelayedError } from "bullmq";
-import { QUEUE_SMS, isContestConfirmationSms, shouldRetry } from "../utils/campaign.js";
+import { QUEUE_SMS, isAllowedOutboundSms, shouldRetry } from "../utils/campaign.js";
 import { selectSimLine } from "../utils/simSelector.js";
 import { getRedis } from "../queues/smsQueue.js";
 import { prisma } from "../utils/prisma.js";
@@ -39,16 +39,16 @@ export function startSmsWorker() {
       if (recipient.status === "SENT" || recipient.status === "DELIVERED" || recipient.status === "CANCELLED") {
         return { skipped: recipient.status };
       }
-      if (isContestConfirmationSms(data.message) || isContestConfirmationSms(recipient.message)) {
-        await prisma.campaignRecipient.update({
-          where: { id: data.recipientId },
-          data: { status: "CANCELLED", errorDetail: "sms_disabled" },
-        });
-        await maybeCompleteCampaign(data.campaignId);
-        return { skipped: "sms_disabled" };
-      }
 
       const campaign = await prisma.campaign.findUnique({ where: { id: data.campaignId } });
+      if (!isAllowedOutboundSms({ campaignName: campaign?.name, message: data.message || recipient.message })) {
+        await prisma.campaignRecipient.update({
+          where: { id: data.recipientId },
+          data: { status: "CANCELLED", errorDetail: "sms_not_allowed" },
+        });
+        await maybeCompleteCampaign(data.campaignId);
+        return { skipped: "sms_not_allowed" };
+      }
       if (!campaign || campaign.status === "CANCELLED") {
         await prisma.campaignRecipient.update({
           where: { id: data.recipientId },

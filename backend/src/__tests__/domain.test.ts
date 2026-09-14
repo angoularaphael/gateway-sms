@@ -4,7 +4,7 @@ import { parseContactsCsv, findDuplicates } from "../utils/csv.js";
 import { interpolateMessage, estimateSms, estimateCampaignSms, toGsmSafe } from "../utils/template.js";
 import { excludeUnsubscribed, isUnsubscribed } from "../utils/unsubscribe.js";
 import { selectSimLine, isWithinRateLimit, sentTodayCount } from "../utils/simSelector.js";
-import { canTransition, buildSmsJob, shouldRetry, isRetryableStuckRecipient, isContestSms, isContestConfirmationSms } from "../utils/campaign.js";
+import { canTransition, buildSmsJob, shouldRetry, isRetryableStuckRecipient, isContestSms, isContestConfirmationSms, isOffreDuoReferralSms, isAllowedOutboundSms } from "../utils/campaign.js";
 import { planSmsResult } from "../utils/smsResult.js";
 import type { SelectableSim } from "../types.js";
 
@@ -288,6 +288,29 @@ describe("campagnes et queue", () => {
     ).toBe(true);
     expect(isContestConfirmationSms("Grâce à votre ami(e), cliquez ici pour finaliser")).toBe(false);
     expect(isContestConfirmationSms("Offre Duo 29 euros chez Boxing Center")).toBe(false);
+    const duo =
+      "Felicitations Lea ! Grace a Hugo Durand, tu beneficia de l'Offre Duo a 29 euros au lieu de -44 euros- chez Boxing Center.";
+    expect(isOffreDuoReferralSms(duo)).toBe(true);
+    expect(isOffreDuoReferralSms("Reprenez votre inscription boutique")).toBe(false);
+    expect(isAllowedOutboundSms({ campaignName: "Concours SMS", message: "jeu concours Hexagone MMA" })).toBe(true);
+    expect(
+      isAllowedOutboundSms({
+        campaignName: "Boutique SMS offre-duo-ami",
+        message: duo,
+      }),
+    ).toBe(true);
+    expect(
+      isAllowedOutboundSms({
+        campaignName: "Boutique SMS boutique",
+        message: "Reprenez votre inscription a l etape paiement",
+      }),
+    ).toBe(false);
+    expect(
+      isAllowedOutboundSms({
+        campaignName: "Messages logiciels",
+        message: "Votre inscription au jeu concours des 10 ans Boxing Center x Hexagone MMA est bien confirmée.",
+      }),
+    ).toBe(false);
   });
 });
 

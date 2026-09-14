@@ -2,7 +2,7 @@ import { Queue } from "bullmq";
 import IORedis from "ioredis";
 import type { Prisma, SmsErrorCode } from "@prisma/client";
 import { config } from "../config.js";
-import { QUEUE_SMS, isContestConfirmationSms, isContestSms, type SmsJob } from "../utils/campaign.js";
+import { QUEUE_SMS, isContestConfirmationSms, isContestSms, isOffreDuoReferralSms, type SmsJob } from "../utils/campaign.js";
 import { logger } from "../utils/logger.js";
 import type { SmsJobPayload } from "../types.js";
 
@@ -108,21 +108,21 @@ export async function requeueStuckRecipients(
     logger.info({ n: cancelledConfirm.count }, "SMS confirmation Hexagone MMA annulés");
   }
 
-  const resumed = await prisma.campaign.updateMany({
+  const cancelledOther = await prisma.campaignRecipient.updateMany({
     where: {
-      status: "PAUSED",
+      status: { in: ["QUEUED", "SENDING"] },
+      campaign: { name: { startsWith: "Boutique SMS" } },
       NOT: {
         OR: [
-          { name: { startsWith: "Concours SMS" } },
-          { name: { startsWith: "Boutique SMS" } },
-          { name: "Messages logiciels" },
+          { campaign: { name: { contains: "offre-duo-ami" } } },
+          { message: { contains: "Offre Duo", mode: "insensitive" } },
         ],
       },
     },
-    data: { status: "RUNNING", completedAt: null },
+    data: { status: "CANCELLED", errorDetail: "sms_not_allowed" },
   });
-  if (resumed.count > 0) {
-    logger.info({ n: resumed.count }, "Campagnes offre / hors concours remises en envoi");
+  if (cancelledOther.count > 0) {
+    logger.info({ n: cancelledOther.count }, "SMS hors offre duo / concours annulés");
   }
 
   const retryErrors: SmsErrorCode[] = ["SMS_FAILED", "DEVICE_OFFLINE", "RATE_LIMIT", "NO_SIM"];
@@ -158,12 +158,29 @@ export async function requeueStuckRecipients(
     campaign: { status: { notIn: ["PAUSED", "CANCELLED"] } },
   };
 
+  const duoWhere: Prisma.CampaignRecipientWhereInput = {
+    OR: [
+      { campaign: { name: { contains: "offre-duo-ami" } } },
+      {
+        AND: [
+          { message: { contains: "Offre Duo", mode: "insensitive" } },
+          {
+            OR: [
+              { message: { contains: "Grace", mode: "insensitive" } },
+              { message: { contains: "Grâce", mode: "insensitive" } },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
   const contestPending = await prisma.campaignRecipient.count({
     where: { AND: [statusWhere, activeCampaign, contestWhere] },
   });
 
-  const contestTake = contestPending > 0 ? Math.max(1, Math.floor(take / 3)) : 0;
-  const restTake = Math.max(1, take - contestTake);
+  const contestTake = contestPending > 0 ? Math.max(1, Math.floor(take / 2)) : 0;
+  const duoTake = Math.max(1, take - contestTake);
 
   const contestRows =
     contestTake > 0
@@ -180,15 +197,12 @@ export async function requeueStuckRecipients(
       AND: [
         statusWhere,
         activeCampaign,
-        { NOT: contestWhere },
-        { NOT: { message: { contains: "est bien confirmée", mode: "insensitive" } } },
-        contestRows.length
-          ? { id: { notIn: contestRows.map((r) => r.id) } }
-          : {},
+        duoWhere,
+        contestRows.length ? { id: { notIn: contestRows.map((r) => r.id) } } : {},
       ],
     },
     include: { campaign: { select: { name: true } } },
-    take: restTake,
+    take: duoTake,
     orderBy: { createdAt: "asc" },
   });
 
@@ -209,11 +223,7 @@ export async function requeueStuckRecipients(
       isContestSms({ campaignName: r.campaign.name, message: r.message }) &&
       !isContestConfirmationSms(r.message),
   );
-  const restJobs = rows.filter(
-    (r) =>
-      !isContestSms({ campaignName: r.campaign.name, message: r.message }) &&
-      !isContestConfirmationSms(r.message),
-  );
+  const restJobs = rows.filter((r) => isOffreDuoReferralSms(r.message) || /offre-duo-ami/i.test(r.campaign.name));
   await enqueueSmsJobs(
     contestJobs.map((r) => ({
       recipientId: r.id,
