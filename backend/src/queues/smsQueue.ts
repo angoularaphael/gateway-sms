@@ -2,7 +2,7 @@ import { Queue } from "bullmq";
 import IORedis from "ioredis";
 import type { Prisma, SmsErrorCode } from "@prisma/client";
 import { config } from "../config.js";
-import { QUEUE_SMS, isContestSms, type SmsJob } from "../utils/campaign.js";
+import { QUEUE_SMS, isContestConfirmationSms, isContestSms, type SmsJob } from "../utils/campaign.js";
 import { logger } from "../utils/logger.js";
 import type { SmsJobPayload } from "../types.js";
 
@@ -97,20 +97,32 @@ export async function requeueStuckRecipients(
   const online = await prisma.device.count({ where: { status: "ONLINE" } });
   if (online === 0) return 0;
 
-  const contestPending = await prisma.campaignRecipient.count({
+  const cancelledConfirm = await prisma.campaignRecipient.updateMany({
     where: {
       status: { in: ["QUEUED", "SENDING"] },
-      OR: [
-        { campaign: { name: { startsWith: "Concours SMS" } } },
-        { message: { contains: "jeu concours", mode: "insensitive" } },
-        { message: { contains: "10 ans Boxing Center", mode: "insensitive" } },
-      ],
-      NOT: { campaign: { name: { startsWith: "Boutique SMS" } } },
+      message: { contains: "est bien confirmée", mode: "insensitive" },
     },
+    data: { status: "CANCELLED", errorDetail: "sms_disabled" },
   });
+  if (cancelledConfirm.count > 0) {
+    logger.info({ n: cancelledConfirm.count }, "SMS confirmation Hexagone MMA annulés");
+  }
 
-  if (contestPending === 0) {
-    logger.info("file concours vide — boutique reste en pause jusqu’à confirmation");
+  const resumed = await prisma.campaign.updateMany({
+    where: {
+      status: "PAUSED",
+      NOT: {
+        OR: [
+          { name: { startsWith: "Concours SMS" } },
+          { name: { startsWith: "Boutique SMS" } },
+          { name: "Messages logiciels" },
+        ],
+      },
+    },
+    data: { status: "RUNNING", completedAt: null },
+  });
+  if (resumed.count > 0) {
+    logger.info({ n: resumed.count }, "Campagnes offre / hors concours remises en envoi");
   }
 
   const retryErrors: SmsErrorCode[] = ["SMS_FAILED", "DEVICE_OFFLINE", "RATE_LIMIT", "NO_SIM"];
@@ -129,26 +141,58 @@ export async function requeueStuckRecipients(
       };
 
   const contestWhere: Prisma.CampaignRecipientWhereInput = {
-    OR: [
-      { campaign: { name: { startsWith: "Concours SMS" } } },
-      { message: { contains: "jeu concours", mode: "insensitive" } },
-      { message: { contains: "10 ans Boxing Center", mode: "insensitive" } },
+    AND: [
+      {
+        OR: [
+          { campaign: { name: { startsWith: "Concours SMS" } } },
+          { message: { contains: "jeu concours", mode: "insensitive" } },
+          { message: { contains: "10 ans Boxing Center", mode: "insensitive" } },
+        ],
+      },
+      { NOT: { campaign: { name: { startsWith: "Boutique SMS" } } } },
+      { NOT: { message: { contains: "est bien confirmée", mode: "insensitive" } } },
     ],
-    NOT: { campaign: { name: { startsWith: "Boutique SMS" } } },
   };
 
-  const rows = await prisma.campaignRecipient.findMany({
+  const activeCampaign: Prisma.CampaignRecipientWhereInput = {
+    campaign: { status: { notIn: ["PAUSED", "CANCELLED"] } },
+  };
+
+  const contestPending = await prisma.campaignRecipient.count({
+    where: { AND: [statusWhere, activeCampaign, contestWhere] },
+  });
+
+  const contestTake = contestPending > 0 ? Math.max(1, Math.floor(take / 3)) : 0;
+  const restTake = Math.max(1, take - contestTake);
+
+  const contestRows =
+    contestTake > 0
+      ? await prisma.campaignRecipient.findMany({
+          where: { AND: [statusWhere, activeCampaign, contestWhere] },
+          include: { campaign: { select: { name: true } } },
+          take: contestTake,
+          orderBy: { createdAt: "asc" },
+        })
+      : [];
+
+  const restRows = await prisma.campaignRecipient.findMany({
     where: {
       AND: [
         statusWhere,
-        { campaign: { status: { notIn: ["PAUSED", "CANCELLED"] } } },
-        contestPending > 0 ? contestWhere : {},
+        activeCampaign,
+        { NOT: contestWhere },
+        { NOT: { message: { contains: "est bien confirmée", mode: "insensitive" } } },
+        contestRows.length
+          ? { id: { notIn: contestRows.map((r) => r.id) } }
+          : {},
       ],
     },
     include: { campaign: { select: { name: true } } },
-    take,
+    take: restTake,
     orderBy: { createdAt: "asc" },
   });
+
+  const rows = [...contestRows, ...restRows];
   if (rows.length === 0) return 0;
 
   const campaignIds = [...new Set(rows.map((r) => r.campaignId))];
@@ -160,8 +204,16 @@ export async function requeueStuckRecipients(
     where: { id: { in: rows.map((r) => r.id) } },
     data: { status: "QUEUED", errorCode: null, errorDetail: null },
   });
-  const contestJobs = rows.filter((r) => isContestSms({ campaignName: r.campaign.name, message: r.message }));
-  const restJobs = rows.filter((r) => !isContestSms({ campaignName: r.campaign.name, message: r.message }));
+  const contestJobs = rows.filter(
+    (r) =>
+      isContestSms({ campaignName: r.campaign.name, message: r.message }) &&
+      !isContestConfirmationSms(r.message),
+  );
+  const restJobs = rows.filter(
+    (r) =>
+      !isContestSms({ campaignName: r.campaign.name, message: r.message }) &&
+      !isContestConfirmationSms(r.message),
+  );
   await enqueueSmsJobs(
     contestJobs.map((r) => ({
       recipientId: r.id,

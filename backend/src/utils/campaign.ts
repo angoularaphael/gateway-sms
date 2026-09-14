@@ -61,3 +61,8 @@ export function isContestSms(input: { campaignName?: string | null; message?: st
   if (/^Concours SMS/i.test(name)) return true;
   return /jeu concours/i.test(message) || /10 ans Boxing Center/i.test(message);
 }
+
+/** Confirmation d’inscription Hexagone MMA — ne plus envoyer. */
+export function isContestConfirmationSms(message?: string | null): boolean {
+  return /est bien confirmée/i.test(String(message || ""));
+}

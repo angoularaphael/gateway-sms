@@ -4,7 +4,7 @@ import { parseContactsCsv, findDuplicates } from "../utils/csv.js";
 import { interpolateMessage, estimateSms, estimateCampaignSms, toGsmSafe } from "../utils/template.js";
 import { excludeUnsubscribed, isUnsubscribed } from "../utils/unsubscribe.js";
 import { selectSimLine, isWithinRateLimit, sentTodayCount } from "../utils/simSelector.js";
-import { canTransition, buildSmsJob, shouldRetry, isRetryableStuckRecipient, isContestSms } from "../utils/campaign.js";
+import { canTransition, buildSmsJob, shouldRetry, isRetryableStuckRecipient, isContestSms, isContestConfirmationSms } from "../utils/campaign.js";
 import { planSmsResult } from "../utils/smsResult.js";
 import type { SelectableSim } from "../types.js";
 
@@ -281,6 +281,13 @@ describe("campagnes et queue", () => {
     expect(isContestSms({ campaignName: "Messages logiciels", message: "Boxing Center fête ses 10 ans Boxing Center" })).toBe(true);
     expect(isContestSms({ campaignName: "Boutique SMS 2026-08-12", message: "Ton abonnement" })).toBe(false);
     expect(isContestSms({ campaignName: "Boutique SMS", message: "jeu concours" })).toBe(false);
+    expect(
+      isContestConfirmationSms(
+        "Votre inscription au jeu concours des 10 ans Boxing Center x Hexagone MMA est bien confirmée.",
+      ),
+    ).toBe(true);
+    expect(isContestConfirmationSms("Grâce à votre ami(e), cliquez ici pour finaliser")).toBe(false);
+    expect(isContestConfirmationSms("Offre Duo 29 euros chez Boxing Center")).toBe(false);
   });
 });
 
