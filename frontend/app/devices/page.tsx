@@ -91,7 +91,23 @@ export default function DevicesPage() {
 
   async function copy(text: string) {
     try {
-      await navigator.clipboard.writeText(text);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return;
+      }
+    } catch {
+      /* HTTP : clipboard API bloquée */
+    }
+    try {
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.setAttribute("readonly", "true");
+      area.style.position = "fixed";
+      area.style.left = "-9999px";
+      document.body.appendChild(area);
+      area.select();
+      document.execCommand("copy");
+      document.body.removeChild(area);
     } catch {
       window.prompt("Copier :", text);
     }
@@ -120,7 +136,7 @@ export default function DevicesPage() {
           Copier l’URL
         </button>
         <p className="mt-3">
-          Si le téléphone reste OFFLINE : Wi‑Fi (pas 4G), APK 1.0.10+, puis Connecter. Autorise SMS / téléphone /
+          Si le téléphone reste OFFLINE : Wi‑Fi (pas 4G), APK 1.0.11+, puis Connecter. Autorise SMS / téléphone /
           notifications. Sur Android 15, l’APK hors Play Store est bloquée : Paramètres de l’appli → ⋮ →
           Autoriser les réglages restreints, puis « Définir comme appli SMS ». Si le copier-coller dans Messages
           marche mais pas l’envoi auto, l’app doit être l’appli SMS par défaut.
@@ -134,7 +150,13 @@ export default function DevicesPage() {
           <p>
             Identifiant : <strong>{pairing.device.deviceId}</strong>
           </p>
-          <p className="mt-1 break-all">
+          <button
+            className="mt-2 mr-2 rounded-lg border border-[#1d3348] px-3 py-1 text-xs"
+            onClick={() => void copy(pairing.device.deviceId)}
+          >
+            Copier ANDROID-…
+          </button>
+          <p className="mt-3 break-all">
             Clé API (à copier maintenant) : <strong>{pairing.apiKey}</strong>
           </p>
           <button

@@ -2,6 +2,7 @@ package com.smsgateway.app
 
 import android.Manifest
 import android.app.role.RoleManager
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -13,6 +14,7 @@ import android.provider.Settings
 import android.provider.Telephony
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
+import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
@@ -26,11 +28,14 @@ import kotlin.concurrent.thread
 
 class MainActivity : AppCompatActivity() {
     private lateinit var prefs: Prefs
+    private lateinit var serverUrl: EditText
+    private lateinit var deviceId: EditText
+    private lateinit var apiKey: EditText
     private val handler = Handler(Looper.getMainLooper())
     private val refresh = object : Runnable {
         override fun run() {
-            renderStatus()
-            handler.postDelayed(this, 1500)
+            if (!isTyping()) renderStatus()
+            handler.postDelayed(this, 2000)
         }
     }
 
@@ -46,12 +51,15 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (Build.VERSION.SDK_INT >= 26) {
+            window.decorView.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
+        }
         setContentView(R.layout.activity_main)
         prefs = Prefs(this)
 
-        val serverUrl = findViewById<EditText>(R.id.serverUrl)
-        val deviceId = findViewById<EditText>(R.id.deviceId)
-        val apiKey = findViewById<EditText>(R.id.apiKey)
+        serverUrl = findViewById(R.id.serverUrl)
+        deviceId = findViewById(R.id.deviceId)
+        apiKey = findViewById(R.id.apiKey)
         val connect = findViewById<Button>(R.id.connectButton)
         val defaultSms = findViewById<Button>(R.id.defaultSmsButton)
 
@@ -59,11 +67,12 @@ class MainActivity : AppCompatActivity() {
         deviceId.setText(prefs.deviceId)
         apiKey.setText(prefs.apiKey)
 
+        findViewById<Button>(R.id.pasteUrlButton).setOnClickListener { pasteInto(serverUrl) }
+        findViewById<Button>(R.id.pasteDeviceButton).setOnClickListener { pasteInto(deviceId) }
+        findViewById<Button>(R.id.pasteKeyButton).setOnClickListener { pasteInto(apiKey) }
+
         connect.setOnClickListener {
-            prefs.serverUrl = serverUrl.text.toString()
-            prefs.deviceId = deviceId.text.toString()
-            prefs.apiKey = apiKey.text.toString()
-            serverUrl.setText(prefs.serverUrl)
+            saveFields()
             if (prefs.deviceId.isBlank() || prefs.apiKey.isBlank()) {
                 Toast.makeText(this, "Device ID et clé API requis", Toast.LENGTH_LONG).show()
                 return@setOnClickListener
@@ -93,7 +102,6 @@ class MainActivity : AppCompatActivity() {
 
         defaultSms.setOnClickListener { requestDefaultSmsApp() }
         findViewById<Button>(R.id.restrictedSettingsButton).setOnClickListener { openAppDetails() }
-        requestPermissionsThenStart(false)
     }
 
     override fun onResume() {
@@ -103,7 +111,43 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         handler.removeCallbacks(refresh)
+        saveFields()
         super.onPause()
+    }
+
+    private fun isTyping(): Boolean {
+        val focus = currentFocus
+        return focus is EditText
+    }
+
+    private fun saveFields() {
+        runCatching {
+            prefs.serverUrl = serverUrl.text.toString()
+            prefs.deviceId = deviceId.text.toString()
+            prefs.apiKey = apiKey.text.toString()
+        }
+    }
+
+    private fun pasteInto(target: EditText) {
+        try {
+            val cm = getSystemService(ClipboardManager::class.java)
+            val clip = cm?.primaryClip
+            if (clip == null || clip.itemCount < 1) {
+                Toast.makeText(this, "Presse-papiers vide — copie d’abord depuis le dashboard", Toast.LENGTH_LONG).show()
+                return
+            }
+            val text = clip.getItemAt(0).coerceToText(this).toString().trim()
+            if (text.isBlank()) {
+                Toast.makeText(this, "Presse-papiers vide", Toast.LENGTH_SHORT).show()
+                return
+            }
+            target.setText(text)
+            target.setSelection(target.text.length)
+            saveFields()
+            Toast.makeText(this, "Collé", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Impossible de coller : ${e.message}", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun isDefaultSmsApp(): Boolean {
@@ -141,8 +185,6 @@ class MainActivity : AppCompatActivity() {
     private fun openSmsDefaultSettings(): Boolean {
         val intents = mutableListOf<Intent>()
         if (Build.VERSION.SDK_INT >= 33) {
-            // String literals: ACTION_MANAGE_DEFAULT_APP / EXTRA_ROLE_NAME are API 33
-            // and the CI android.jar does not always expose them at compile time.
             intents += Intent("android.settings.MANAGE_DEFAULT_APP").putExtra(
                 "android.provider.extra.ROLE_NAME",
                 RoleManager.ROLE_SMS,
@@ -208,10 +250,15 @@ class MainActivity : AppCompatActivity() {
         val missing = needed.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
         if (missing.isNotEmpty()) {
             ActivityCompat.requestPermissions(this, missing.toTypedArray(), 42)
+            return
         }
+        startGateway(forceRestart)
+    }
+
+    private fun startGateway(forceRestart: Boolean) {
         if (prefs.apiKey.isBlank() || prefs.deviceId.isBlank()) return
         if (forceRestart) {
-            stopService(Intent(this, GatewayService::class.java))
+            runCatching { stopService(Intent(this, GatewayService::class.java)) }
         }
         try {
             ContextCompat.startForegroundService(this, Intent(this, GatewayService::class.java))
@@ -223,7 +270,13 @@ class MainActivity : AppCompatActivity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        requestPermissionsThenStart(true)
+        if (requestCode != 42) return
+        val granted = grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+        if (!granted) {
+            Toast.makeText(this, "Autorise SMS / téléphone pour envoyer", Toast.LENGTH_LONG).show()
+            return
+        }
+        startGateway(true)
     }
 
     private fun renderStatus() {
@@ -233,13 +286,13 @@ class MainActivity : AppCompatActivity() {
             val sims = if (StatusStore.sims.isNotEmpty()) StatusStore.sims else SimReader.read(tm, sm)
             val sim1 = sims.firstOrNull { it.slot == 1 }
             val sim2 = sims.firstOrNull { it.slot == 2 }
-            fun dot(sim: SimInfo?) = if (sim?.status == "READY") "🟢 Ready" else "🔴 ${sim?.status ?: "ABSENT"}"
+            fun dot(sim: SimInfo?) = if (sim?.status == "READY") "Ready" else (sim?.status ?: "ABSENT")
             val errorLine = if (StatusStore.lastError.isBlank()) "" else "\n\nDernière erreur:\n${StatusStore.lastError}"
             val crashLine = if (prefs.lastCrash.isBlank()) "" else "\n\nDernier plantage:\n${prefs.lastCrash}"
             val defaultLine = if (isDefaultSmsApp()) {
-                "Appli SMS par défaut : oui (pas de popup quota)"
+                "Appli SMS par défaut : oui"
             } else if (Build.VERSION.SDK_INT >= 35) {
-                "Appli SMS par défaut : non\nAndroid 15 : Paramètres de l’appli → ⋮ → Autoriser les réglages restreints, puis reviens appuyer sur le bouton."
+                "Appli SMS par défaut : non — Paramètres de l’appli → ⋮ → Autoriser les réglages restreints"
             } else {
                 "Appli SMS par défaut : non — appuie sur le bouton ci-dessus"
             }
@@ -248,7 +301,7 @@ class MainActivity : AppCompatActivity() {
                 ${prefs.deviceId.ifBlank { "—" }}
 
                 Connection:
-                ${if (StatusStore.connected) "🟢 Connected" else "🔴 Disconnected"}
+                ${if (StatusStore.connected) "Connected" else "Disconnected"}
 
                 $defaultLine
 
