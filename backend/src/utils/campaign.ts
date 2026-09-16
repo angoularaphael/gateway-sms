@@ -74,16 +74,42 @@ function foldSms(value: string): string {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
+/** Tous les SMS jeu concours / Hexagone MMA. */
+export function isHexagoneSms(input: { campaignName?: string | null; message?: string | null }): boolean {
+  const name = foldSms(input.campaignName || "");
+  const message = foldSms(input.message || "");
+  if (/^concours sms/i.test(input.campaignName || "")) return true;
+  return (
+    message.includes("hexagone") ||
+    message.includes("jeu concours") ||
+    message.includes("10 ans boxing center") ||
+    name.includes("hexagone")
+  );
+}
+
 /** Relance ami offre duo : « Grâce à … tu bénéficies de l’Offre Duo ». */
 export function isOffreDuoReferralSms(message?: string | null): boolean {
   const m = foldSms(String(message || ""));
   return m.includes("offre duo") && m.includes("grace a");
 }
 
-/** Seuls SMS autorisés : concours Hexagone (hors confirmation) + invités offre duo. */
+/** Invitation séance offerte (David). */
+export function isSeanceOfferteSms(input: { campaignName?: string | null; message?: string | null }): boolean {
+  const name = foldSms(input.campaignName || "");
+  const message = foldSms(input.message || "");
+  if (name.includes("seance-offerte") || name.includes("seance offerte")) return true;
+  return (
+    message.includes("seance-offerte.boxingcenter.fr") ||
+    message.includes("seance d'essai") ||
+    message.includes("seance d essai")
+  );
+}
+
+/** Seuls SMS autorisés : séance offerte + invités offre duo. Hexagone / concours coupés. */
 export function isAllowedOutboundSms(input: { campaignName?: string | null; message?: string | null }): boolean {
-  if (isContestConfirmationSms(input.message)) return false;
+  if (isContestConfirmationSms(input.message) || isHexagoneSms(input)) return false;
   if (isOffreDuoReferralSms(input.message)) return true;
   if (/offre-duo-ami/i.test(input.campaignName || "")) return true;
-  return isContestSms(input);
+  if (isSeanceOfferteSms(input)) return true;
+  return false;
 }

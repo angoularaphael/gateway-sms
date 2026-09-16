@@ -322,7 +322,7 @@ describe("campagnes et queue", () => {
       "Felicitations Lea ! Grace a Hugo Durand, tu beneficia de l'Offre Duo a 29 euros au lieu de -44 euros- chez Boxing Center.";
     expect(isOffreDuoReferralSms(duo)).toBe(true);
     expect(isOffreDuoReferralSms("Reprenez votre inscription boutique")).toBe(false);
-    expect(isAllowedOutboundSms({ campaignName: "Concours SMS", message: "jeu concours Hexagone MMA" })).toBe(true);
+    expect(isAllowedOutboundSms({ campaignName: "Concours SMS", message: "jeu concours Hexagone MMA" })).toBe(false);
     expect(
       isAllowedOutboundSms({
         campaignName: "Boutique SMS offre-duo-ami",
@@ -341,6 +341,12 @@ describe("campagnes et queue", () => {
         message: "Votre inscription au jeu concours des 10 ans Boxing Center x Hexagone MMA est bien confirmée.",
       }),
     ).toBe(false);
+    expect(
+      isAllowedOutboundSms({
+        campaignName: "Messages logiciels",
+        message: "Salut Marie, C'est David. Je t'offre ta seance d'essai. https://seance-offerte.boxingcenter.fr/?src=sms",
+      }),
+    ).toBe(true);
   });
 });
 

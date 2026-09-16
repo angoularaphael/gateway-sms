@@ -3,6 +3,7 @@ import { validatePhone } from "../utils/phone.js";
 import { toGsmSafe } from "../utils/template.js";
 import { enqueueSmsJobs } from "../queues/smsQueue.js";
 import { isPhoneUnsubscribed } from "./unsubscribeService.js";
+import { isAllowedOutboundSms } from "../utils/campaign.js";
 
 export const SYSTEM_OUTBOUND_NAME = "Messages logiciels";
 
@@ -45,6 +46,14 @@ export async function sendDirectMessage(input: {
   const text = toGsmSafe(input.message);
   if (!text) {
     throw Object.assign(new Error("Message vide"), { status: 400 });
+  }
+  if (
+    !isAllowedOutboundSms({
+      campaignName: input.source === "seance-offerte" ? "seance-offerte" : SYSTEM_OUTBOUND_NAME,
+      message: text,
+    })
+  ) {
+    throw Object.assign(new Error("SMS Hexagone / concours désactivés"), { status: 403, code: "SMS_DISABLED" });
   }
   if (await isPhoneUnsubscribed(phone.normalized)) {
     throw Object.assign(new Error("Numéro désinscrit"), { status: 400, code: "UNSUBSCRIBED" });
