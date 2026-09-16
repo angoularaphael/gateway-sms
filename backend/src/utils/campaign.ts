@@ -93,6 +93,16 @@ export function isOffreDuoReferralSms(message?: string | null): boolean {
   return m.includes("offre duo") && m.includes("grace a");
 }
 
+/** Relance inscription payée non signée (finaliser dossier). */
+export function isInscriptionNudgeSms(message?: string | null): boolean {
+  const m = foldSms(String(message || ""));
+  return (
+    m.includes("pas finalise") &&
+    m.includes("inscription boxing center") &&
+    m.includes("boutique.boxingcenter.fr")
+  );
+}
+
 /** Invitation séance offerte (David). */
 export function isSeanceOfferteSms(input: { campaignName?: string | null; message?: string | null }): boolean {
   const name = foldSms(input.campaignName || "");
@@ -105,9 +115,11 @@ export function isSeanceOfferteSms(input: { campaignName?: string | null; messag
   );
 }
 
-/** Seuls SMS autorisés : séance offerte + invités offre duo. Hexagone / concours coupés. */
+/** Seuls SMS autorisés : relance inscription + séance offerte + invités offre duo. Hexagone / concours coupés. */
 export function isAllowedOutboundSms(input: { campaignName?: string | null; message?: string | null }): boolean {
   if (isContestConfirmationSms(input.message) || isHexagoneSms(input)) return false;
+  if (isInscriptionNudgeSms(input.message)) return true;
+  if (/relance inscription/i.test(input.campaignName || "")) return true;
   if (isOffreDuoReferralSms(input.message)) return true;
   if (/offre-duo-ami/i.test(input.campaignName || "")) return true;
   if (isSeanceOfferteSms(input)) return true;
