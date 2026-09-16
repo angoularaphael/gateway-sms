@@ -226,7 +226,7 @@ describe("sélection téléphone / SIM", () => {
     const recent = sim({ lastUsedAt: new Date("2026-08-29T11:59:50Z"), ratePerMinute: 4 });
     expect(isWithinRateLimit(recent, now).ok).toBe(false);
     expect(isWithinRateLimit(recent, now).reason).toBe("RATE_LIMIT");
-    const afterPause = sim({ lastUsedAt: new Date("2026-08-29T11:58:29Z"), ratePerMinute: 1 });
+    const afterPause = sim({ lastUsedAt: new Date("2026-08-29T11:59:44Z"), ratePerMinute: 4 });
     expect(isWithinRateLimit(afterPause, now).ok).toBe(true);
   });
 

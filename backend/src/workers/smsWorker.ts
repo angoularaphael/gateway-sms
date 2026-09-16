@@ -106,7 +106,7 @@ export function startSmsWorker() {
           where: { id: data.recipientId },
           data: { status: "QUEUED", errorCode: selection.error },
         });
-        const waitMs = selection.error === "DEVICE_OFFLINE" ? 15_000 : 15 * 60_000;
+        const waitMs = 15_000;
         await job.moveToDelayed(Date.now() + waitMs, token);
         throw new DelayedError();
       }
