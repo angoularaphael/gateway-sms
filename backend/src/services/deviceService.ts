@@ -75,6 +75,22 @@ export async function deleteDevice(deviceId: string) {
   await prisma.device.delete({ where: { id: device.id } });
 }
 
+export async function rotateApiKey(deviceId: string) {
+  const device = await prisma.device.findUnique({ where: { deviceId } });
+  if (!device) {
+    throw Object.assign(new Error("Appareil introuvable"), { status: 404 });
+  }
+  const apiKey = generateApiKey();
+  const apiKeyHash = await hashApiKey(apiKey);
+  await prisma.device.update({
+    where: { id: device.id },
+    data: { apiKeyHash, status: "OFFLINE" },
+  });
+  const { forgetDevice } = await import("../websocket/gateway.js");
+  forgetDevice(deviceId);
+  return { deviceId, apiKey };
+}
+
 export async function listDevices() {
   const devices = await prisma.device.findMany({
     include: {

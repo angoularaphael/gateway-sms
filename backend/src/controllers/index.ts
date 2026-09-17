@@ -95,6 +95,9 @@ export const devices = {
     await deviceService.deleteDevice(String(req.params.id));
     res.status(204).end();
   }),
+  rotateKey: asyncHandler(async (req, res) => {
+    res.json(await deviceService.rotateApiKey(String(req.params.id)));
+  }),
   heartbeat: asyncHandler(async (req, res) => {
     res.json(await deviceService.heartbeat(String(req.params.id), req.body ?? {}));
   }),

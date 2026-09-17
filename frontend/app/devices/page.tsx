@@ -76,6 +76,24 @@ export default function DevicesPage() {
     }
   }
 
+  async function rotateKey(deviceId: string) {
+    if (!window.confirm(`Nouvelle clé pour ${deviceId} ? L’ancienne ne marchera plus : recolle-la dans l’app.`)) return;
+    setError("");
+    setBusy(`rotate-${deviceId}`);
+    try {
+      const result = await api<{ deviceId: string; apiKey: string }>(
+        `/api/devices/${encodeURIComponent(deviceId)}/rotate-key`,
+        { method: "POST" },
+      );
+      setPairing({ device: { deviceId: result.deviceId }, apiKey: result.apiKey });
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function toggleSim(sim: Sim, enabled: boolean) {
     setError("");
     try {
@@ -199,13 +217,22 @@ export default function DevicesPage() {
                 </li>
               ))}
             </ul>
-            <button
-              className="mt-4 rounded-lg border border-[#ff6b6b]/40 px-3 py-2 text-sm text-[#ff6b6b] disabled:opacity-50"
-              disabled={busy !== null}
-              onClick={() => void remove(d.deviceId)}
-            >
-              {busy === d.deviceId ? "Suppression…" : "Supprimer"}
-            </button>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                className="rounded-lg border border-[#1d3348] px-3 py-2 text-sm disabled:opacity-50"
+                disabled={busy !== null}
+                onClick={() => void rotateKey(d.deviceId)}
+              >
+                {busy === `rotate-${d.deviceId}` ? "Nouvelle clé…" : "Nouvelle clé API"}
+              </button>
+              <button
+                className="rounded-lg border border-[#ff6b6b]/40 px-3 py-2 text-sm text-[#ff6b6b] disabled:opacity-50"
+                disabled={busy !== null}
+                onClick={() => void remove(d.deviceId)}
+              >
+                {busy === d.deviceId ? "Suppression…" : "Supprimer"}
+              </button>
+            </div>
           </article>
         ))}
       </div>
