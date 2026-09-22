@@ -364,6 +364,15 @@ export async function deleteCampaign(id: string) {
   if (!campaign) {
     throw Object.assign(new Error("Campagne introuvable"), { status: 404 });
   }
+  try {
+    await cancelCampaign(id);
+  } catch {
+    await prisma.campaignRecipient.updateMany({
+      where: { campaignId: id, status: { in: ["QUEUED", "SENDING"] } },
+      data: { status: "CANCELLED", errorDetail: "deleted_campaign" },
+    });
+    await removeQueuedJobsForCampaign(id);
+  }
   await removeQueuedJobsForCampaign(id);
   await prisma.campaign.delete({ where: { id } });
 }

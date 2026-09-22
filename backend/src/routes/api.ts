@@ -51,6 +51,7 @@ api.get("/campaigns/:id/stats", authJwt, campaigns.stats);
 
 api.get("/dashboard", authJwt, dashboard.stats);
 api.post("/ops/requeue", authJwt, ops.requeue);
+api.post("/ops/purge-sport2000", authJwt, ops.purgeSport2000);
 
 api.post("/messages/send", authJwtOrOutbound, outbound.send);
 api.post("/send-message", authJwtOrOutbound, outbound.send);

@@ -219,11 +219,53 @@ export async function requeueStuckRecipients(
   return allowedJobs.length;
 }
 
+const JOB_STATES = ["waiting", "delayed", "paused", "active", "prioritized"] as const;
+
 export async function removeQueuedJobsForCampaign(campaignId: string): Promise<void> {
   if (redisCommandsBlocked()) return;
   const queue = getSmsQueue();
-  const jobs = await queue.getJobs(["waiting", "delayed", "paused"]);
-  await Promise.all(jobs.filter((j) => j.data.campaignId === campaignId).map((j) => j.remove()));
+  const jobs = await queue.getJobs([...JOB_STATES], 0, 50_000);
+  await Promise.all(
+    jobs.filter((j) => j.data.campaignId === campaignId).map((j) => j.remove().catch(() => undefined)),
+  );
+}
+
+/** Coupe file Redis + destinataires Sport2000 / seance offerte encore en attente (ancien texte). */
+export async function purgeSport2000Pending(): Promise<{
+  recipientsCancelled: number;
+  jobsRemoved: number;
+}> {
+  if (redisCommandsBlocked()) {
+    return { recipientsCancelled: 0, jobsRemoved: 0 };
+  }
+  const { prisma } = await import("../utils/prisma.js");
+  const cancelled = await prisma.campaignRecipient.updateMany({
+    where: {
+      status: { in: ["QUEUED", "SENDING"] },
+      OR: [
+        { campaign: { name: { contains: "Sport2000", mode: "insensitive" } } },
+        { campaign: { name: { contains: "seance offerte", mode: "insensitive" } } },
+        { message: { contains: "seance-offerte.boxingcenter.fr", mode: "insensitive" } },
+      ],
+    },
+    data: { status: "CANCELLED", errorDetail: "purge_sport2000_pending" },
+  });
+
+  const queue = getSmsQueue();
+  const jobs = await queue.getJobs([...JOB_STATES], 0, 50_000);
+  let jobsRemoved = 0;
+  for (const job of jobs) {
+    const msg = String(job.data?.message || "");
+    const name = String((job.data as { campaignName?: string })?.campaignName || "");
+    const isSport =
+      /sport2000|seance offerte/i.test(name) ||
+      /seance-offerte\.boxingcenter\.fr/i.test(msg);
+    if (!isSport) continue;
+    await job.remove().catch(() => undefined);
+    jobsRemoved += 1;
+  }
+  logger.info({ recipientsCancelled: cancelled.count, jobsRemoved }, "purge Sport2000 pending");
+  return { recipientsCancelled: cancelled.count, jobsRemoved };
 }
 
 export async function pauseSmsQueue(): Promise<void> {

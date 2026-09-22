@@ -237,6 +237,10 @@ export const ops = {
     const n = await requeueStuckRecipients({ take });
     res.json({ ok: true, requeued: n });
   }),
+  purgeSport2000: asyncHandler(async (_req, res) => {
+    const { purgeSport2000Pending } = await import("../queues/smsQueue.js");
+    res.json({ ok: true, ...(await purgeSport2000Pending()) });
+  }),
 };
 
 export const outbound = {
