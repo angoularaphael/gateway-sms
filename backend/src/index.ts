@@ -33,7 +33,7 @@ async function main() {
         if (n > 0) logger.info({ n }, "stuck SMS requeued");
       })
       .catch((err) => logger.error({ err }, "stuck sms sweep failed"));
-  }, 10 * 60_000);
+  }, 2 * 60_000);
 
   setInterval(() => {
     const cutoff = new Date(Date.now() - 180_000);

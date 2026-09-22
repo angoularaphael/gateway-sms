@@ -24,7 +24,7 @@ export function isWithinRateLimit(sim: SelectableSim, now: Date): { ok: boolean;
     return { ok: false, reason: "RATE_LIMIT" };
   }
   if (sim.lastUsedAt) {
-    const minIntervalMs = Math.max(15_000, Math.ceil(60_000 / Math.max(sim.ratePerMinute, 4)));
+    const minIntervalMs = Math.max(15_000, Math.ceil(60_000 / Math.max(sim.ratePerMinute, 1)));
     if (now.getTime() - sim.lastUsedAt.getTime() < minIntervalMs) {
       return { ok: false, reason: "RATE_LIMIT" };
     }
