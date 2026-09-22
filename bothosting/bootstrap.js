@@ -79,7 +79,7 @@ function run(cmd, cwd = ROOT) {
   console.log(`> ${cmd}`);
   const env = {
     ...process.env,
-    NODE_OPTIONS: process.env.NODE_OPTIONS || "--max-old-space-size=384",
+    NODE_OPTIONS: process.env.NODE_OPTIONS || "--max-old-space-size=512",
     NPM_CONFIG_UPDATE_NOTIFIER: "false",
     NPM_CONFIG_FUND: "false",
     NPM_CONFIG_AUDIT: "false",
@@ -137,19 +137,41 @@ async function main() {
     console.log("[sms-gateway bootstrap] .env copié vers backend/");
   }
 
+  const distEntry = path.join(BACKEND_DIR, "dist", "index.js");
+  const needsBuild = !fs.existsSync(distEntry) || process.env.SMS_GATEWAY_FORCE_BUILD === "1";
+
   const hasModules = fs.existsSync(path.join(BACKEND_DIR, "node_modules", "express"));
-  if (!hasModules) {
-    run("npm install --omit=dev --no-audit --no-fund --ignore-scripts", BACKEND_DIR);
+  if (!hasModules || needsBuild) {
+    run("npm install --no-audit --no-fund", BACKEND_DIR);
   } else {
     console.log("[sms-gateway bootstrap] node_modules déjà présent, npm install sauté");
   }
 
+  if (needsBuild) {
+    console.log("[sms-gateway bootstrap] compilation TypeScript (dist/)…");
+    run("npm run build", BACKEND_DIR);
+    try {
+      run("npm prune --omit=dev", BACKEND_DIR);
+    } catch (err) {
+      console.warn("[sms-gateway bootstrap] npm prune ignoré:", err.message);
+    }
+  }
+
+  if (!fs.existsSync(distEntry)) {
+    console.error("[sms-gateway bootstrap] dist/index.js introuvable après build");
+    process.exit(1);
+  }
+
   run("npx prisma generate", BACKEND_DIR);
   run("npx prisma migrate deploy", BACKEND_DIR);
-  try {
-    run("npm run prisma:seed", BACKEND_DIR);
-  } catch (err) {
-    console.warn("[sms-gateway bootstrap] seed ignoré:", err.message);
+  if (process.env.SMS_GATEWAY_RUN_SEED === "1") {
+    try {
+      run("npm run prisma:seed", BACKEND_DIR);
+    } catch (err) {
+      console.warn("[sms-gateway bootstrap] seed ignoré:", err.message);
+    }
+  } else {
+    console.log("[sms-gateway bootstrap] seed sauté (SMS_GATEWAY_RUN_SEED!=1)");
   }
 
   if (!fs.existsSync(path.join(DASHBOARD_DIR, "index.html"))) {
@@ -157,13 +179,20 @@ async function main() {
   }
 
   process.env.FRONTEND_DIR = DASHBOARD_DIR;
-  console.log("[sms-gateway bootstrap] démarrage API + dashboard…");
+  console.log("[sms-gateway bootstrap] démarrage API + dashboard (node dist)…");
   process.chdir(BACKEND_DIR);
-  require("child_process").execSync("npx tsx src/index.ts", {
+  const { spawn } = require("child_process");
+  const child = spawn(process.execPath, ["dist/index.js"], {
     cwd: BACKEND_DIR,
     stdio: "inherit",
-    env: { ...process.env, NODE_OPTIONS: process.env.NODE_OPTIONS || "--max-old-space-size=384" },
-    shell: true,
+    env: {
+      ...process.env,
+      NODE_OPTIONS: process.env.NODE_OPTIONS || "--max-old-space-size=512",
+    },
+  });
+  child.on("exit", (code, signal) => {
+    console.error("[sms-gateway bootstrap] API arrêtée", { code, signal });
+    process.exit(code == null ? 1 : code);
   });
 }
 

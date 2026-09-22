@@ -16,7 +16,7 @@ async function main() {
   attachGatewaySocket(server);
   startSmsWorker();
   import("./queues/smsQueue.js")
-    .then(({ requeueStuckRecipients }) => requeueStuckRecipients({ take: 6 }))
+    .then(({ requeueStuckRecipients }) => requeueStuckRecipients({ take: 3 }))
     .then((n) => {
       if (n > 0) logger.info({ n }, "SMS file reprise au démarrage");
     })
