@@ -6,20 +6,38 @@ import { getUnsubscribedSet } from "./unsubscribeService.js";
 import { enqueueSmsJobs, removeQueuedJobsForCampaign } from "../queues/smsQueue.js";
 import { createContact, importCsv } from "./contactService.js";
 
+const LIST_CAMPAIGNS_MAX = Math.min(
+  200,
+  Math.max(20, Number.parseInt(process.env.LIST_CAMPAIGNS_MAX || "80", 10) || 80),
+);
+
 export async function listCampaigns() {
-  const [rows, groups] = await Promise.all([
-    prisma.campaign.findMany({
-      include: {
-        list: { include: { _count: { select: { members: true } } } },
-        _count: { select: { recipients: true } },
-      },
-      orderBy: { createdAt: "desc" },
-    }),
-    prisma.campaignRecipient.groupBy({
-      by: ["campaignId", "status"],
-      _count: { _all: true },
-    }),
-  ]);
+  const rows = await prisma.campaign.findMany({
+    take: LIST_CAMPAIGNS_MAX,
+    select: {
+      id: true,
+      name: true,
+      status: true,
+      message: true,
+      createdAt: true,
+      startedAt: true,
+      completedAt: true,
+      scheduledAt: true,
+      preferredSimSlot: true,
+      listId: true,
+      list: { select: { _count: { select: { members: true } } } },
+      _count: { select: { recipients: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  const ids = rows.map((c) => c.id);
+  if (ids.length === 0) return [];
+
+  const groups = await prisma.campaignRecipient.groupBy({
+    by: ["campaignId", "status"],
+    where: { campaignId: { in: ids } },
+    _count: { _all: true },
+  });
   const statsByCampaign = new Map<string, { sent: number; failed: number; queued: number; delivered: number }>();
   for (const g of groups) {
     const cur = statsByCampaign.get(g.campaignId) ?? { sent: 0, failed: 0, queued: 0, delivered: 0 };
@@ -37,24 +55,24 @@ export async function listCampaigns() {
 }
 
 export async function getCampaign(id: string) {
-  return prisma.campaign.findUniqueOrThrow({
+  const campaign = await prisma.campaign.findUniqueOrThrow({
     where: { id },
     include: {
       list: {
-        include: {
-          members: {
-            include: { contact: true },
-            orderBy: { createdAt: "desc" },
-          },
+        select: {
+          id: true,
+          name: true,
+          _count: { select: { members: true } },
         },
       },
       recipients: {
         include: { simLine: true, contact: true },
         orderBy: { createdAt: "desc" },
-        take: 400,
+        take: 200,
       },
     },
   });
+  return campaign;
 }
 
 export async function ensureCampaignList(campaignId: string): Promise<string> {
