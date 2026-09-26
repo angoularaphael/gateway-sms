@@ -215,30 +215,28 @@ export async function startCampaign(id: string, opts: { preferredSimSlot?: numbe
         where: { id },
         data: { status: current.status === "COMPLETED" ? "COMPLETED" : "DRAFT", startedAt: null },
       });
-      return { empty: true as const, contactCount: contacts.length, recipients: [] };
+      return { empty: true as const, contactCount: contacts.length, queuedCount: 0 };
     }
 
-    await tx.campaignRecipient.createMany({
-      data: toQueue.map((c) => ({
-        campaignId: id,
-        contactId: c.id,
-        phoneNumber: c.telephone,
-        message: interpolateMessage(current.message, c),
-        status: "QUEUED" as const,
-      })),
-    });
+    const rows = toQueue.map((c) => ({
+      campaignId: id,
+      contactId: c.id,
+      phoneNumber: c.telephone,
+      message: interpolateMessage(current.message, c),
+      status: "QUEUED" as const,
+    }));
+    const batchSize = 500;
+    for (let i = 0; i < rows.length; i += batchSize) {
+      await tx.campaignRecipient.createMany({ data: rows.slice(i, i + batchSize) });
+    }
 
     await tx.campaign.update({
       where: { id },
       data: { status: "RUNNING", startedAt: current.startedAt ?? new Date() },
     });
 
-    return {
-      empty: false as const,
-      contactCount: contacts.length,
-      recipients: await tx.campaignRecipient.findMany({ where: { campaignId: id, status: "QUEUED" } }),
-    };
-  });
+    return { empty: false as const, contactCount: contacts.length, queuedCount: rows.length };
+  }, { timeout: 180_000, maxWait: 20_000 });
 
   if (queued.empty) {
     throw Object.assign(
@@ -251,18 +249,32 @@ export async function startCampaign(id: string, opts: { preferredSimSlot?: numbe
     );
   }
 
-  await enqueueSmsJobs(
-    queued.recipients.map((r) => ({
-      recipientId: r.id,
-      campaignId: r.campaignId,
-      contactId: r.contactId,
-      phoneNumber: r.phoneNumber,
-      message: r.message,
-      preferredSim: slot ?? undefined,
-    })),
-  );
+  let enqueued = 0;
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await prisma.campaignRecipient.findMany({
+      where: { campaignId: id, status: "QUEUED" },
+      orderBy: { id: "asc" },
+      take: 200,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      select: { id: true, campaignId: true, contactId: true, phoneNumber: true, message: true },
+    });
+    if (page.length === 0) break;
+    await enqueueSmsJobs(
+      page.map((r) => ({
+        recipientId: r.id,
+        campaignId: r.campaignId,
+        contactId: r.contactId,
+        phoneNumber: r.phoneNumber,
+        message: r.message,
+        preferredSim: slot ?? undefined,
+      })),
+    );
+    enqueued += page.length;
+    cursor = page[page.length - 1]!.id;
+  }
 
-  return { queued: queued.recipients.length, preferredSimSlot: slot ?? null };
+  return { queued: enqueued, preferredSimSlot: slot ?? null };
 }
 
 export async function retryUnconfirmed(

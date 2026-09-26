@@ -61,5 +61,7 @@ api.get("/health", (_req, res) => {
   res.json({
     ok: true,
     redis: /127\.0\.0\.1|localhost/i.test(redisUrl) ? "local" : "remote",
+    paceMs: 1000,
+    maxSendAttempts: 3,
   });
 });
