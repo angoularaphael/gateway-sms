@@ -141,7 +141,7 @@ export async function requeueStuckRecipients(
           {
             status: "FAILED",
             errorCode: { in: retryErrors },
-            attempts: { lt: 10 },
+            attempts: { lt: 3 },
           },
         ],
       };

@@ -87,6 +87,17 @@ function run(cmd, cwd = ROOT) {
   execSync(cmd, { cwd, stdio: "inherit", env, shell: true });
 }
 
+function newestMtime(dir) {
+  let max = 0;
+  if (!fs.existsSync(dir)) return 0;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) max = Math.max(max, newestMtime(full));
+    else max = Math.max(max, fs.statSync(full).mtimeMs);
+  }
+  return max;
+}
+
 function resolvePort() {
   const raw = process.env.SERVER_PORT || process.env.PORT || "21724";
   const port = String(raw).trim();
@@ -138,7 +149,10 @@ async function main() {
   }
 
   const distEntry = path.join(BACKEND_DIR, "dist", "index.js");
-  const needsBuild = !fs.existsSync(distEntry) || process.env.SMS_GATEWAY_FORCE_BUILD === "1";
+  const needsBuild =
+    !fs.existsSync(distEntry) ||
+    process.env.SMS_GATEWAY_FORCE_BUILD === "1" ||
+    newestMtime(path.join(BACKEND_DIR, "src")) > fs.statSync(distEntry).mtimeMs;
 
   const hasModules = fs.existsSync(path.join(BACKEND_DIR, "node_modules", "express"));
   if (!hasModules || needsBuild) {

@@ -221,6 +221,19 @@ describe("sélection téléphone / SIM", () => {
     expect(isWithinRateLimit(parked, now).ok).toBe(false);
   });
 
+  it("autorise un SMS par seconde a 60 par minute", () => {
+    const tooSoon = sim({
+      lastUsedAt: new Date("2026-08-29T12:00:00.100Z"),
+      ratePerMinute: 60,
+    });
+    expect(isWithinRateLimit(tooSoon, new Date("2026-08-29T12:00:01.000Z")).ok).toBe(false);
+    const ready = sim({
+      lastUsedAt: new Date("2026-08-29T12:00:00.000Z"),
+      ratePerMinute: 60,
+    });
+    expect(isWithinRateLimit(ready, new Date("2026-08-29T12:00:01.000Z")).ok).toBe(true);
+  });
+
   it("applique le rate limit par minute", () => {
     const now = new Date("2026-08-29T12:00:00Z");
     const recent = sim({ lastUsedAt: new Date("2026-08-29T11:59:50Z"), ratePerMinute: 4 });

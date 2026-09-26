@@ -9,8 +9,11 @@ import { maybeCompleteCampaign } from "../services/campaignService.js";
 import { sendJobToDevice } from "../websocket/gateway.js";
 import { removePendingJob } from "../websocket/pendingJobs.js";
 import { logger } from "../utils/logger.js";
-import { config } from "../config.js";
 import type { SmsJobPayload } from "../types.js";
+
+/** 1er envoi + 2 essais. Au-dela, le numero est abandonne et la file continue. */
+const MAX_SEND_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 1_000;
 
 function startOfUtcDay(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
@@ -106,7 +109,7 @@ export function startSmsWorker() {
           where: { id: data.recipientId },
           data: { status: "QUEUED", errorCode: selection.error },
         });
-        const waitMs = 15_000;
+        const waitMs = selection.error === "RATE_LIMIT" ? RETRY_DELAY_MS : 15_000;
         await job.moveToDelayed(Date.now() + waitMs, token);
         throw new DelayedError();
       }
@@ -131,7 +134,10 @@ export function startSmsWorker() {
             return { dispatched: true };
           }
           const code = latest?.errorCode ?? "SMS_FAILED";
-          if (code === "RATE_LIMIT" && sim.id) {
+          const attempts = latest?.attempts ?? job.attemptsMade + 1;
+          const exhausted = attempts >= MAX_SEND_ATTEMPTS;
+          const hardFail = code === "INVALID_NUMBER" || code === "UNSUBSCRIBED";
+          if (!hardFail && !exhausted && code === "RATE_LIMIT" && sim.id) {
             await parkSimAfterOperatorLimit(sim.id);
             try {
               await job.updateData({
@@ -146,19 +152,27 @@ export function startSmsWorker() {
               where: { id: data.recipientId, status: { in: ["FAILED", "SENDING"] } },
               data: { status: "QUEUED", errorCode: "RATE_LIMIT" },
             });
-            await job.moveToDelayed(Date.now() + 3_000, token);
+            await job.moveToDelayed(Date.now() + RETRY_DELAY_MS, token);
             throw new DelayedError();
           }
-          if (code === "RATE_LIMIT" || code === "NO_SIM" || shouldRetry(code, latest?.attempts ?? job.attemptsMade + 1, config.smsJobAttempts)) {
+          if (!hardFail && !exhausted && (code === "NO_SIM" || shouldRetry(code, attempts, MAX_SEND_ATTEMPTS))) {
             await prisma.campaignRecipient.updateMany({
               where: { id: data.recipientId, status: { in: ["FAILED", "SENDING"] } },
               data: { status: "QUEUED", errorCode: code === "SMS_FAILED" ? null : code },
             });
-            await job.moveToDelayed(Date.now() + 90_000, token);
+            await job.moveToDelayed(Date.now() + RETRY_DELAY_MS, token);
             throw new DelayedError();
           }
+          await prisma.campaignRecipient.updateMany({
+            where: { id: data.recipientId, status: { in: ["FAILED", "SENDING", "QUEUED"] } },
+            data: {
+              status: "FAILED",
+              errorCode: code === "SMS_FAILED" ? "SMS_FAILED" : code,
+              errorDetail: hardFail ? latest?.errorDetail ?? code : "abandon apres 2 essais",
+            },
+          });
           await maybeCompleteCampaign(data.campaignId);
-          return { failed: true };
+          return { failed: true, skipped: true };
         }
         const moved = await prisma.campaignRecipient.updateMany({
           where: { id: data.recipientId, status: "SENDING" },
@@ -179,11 +193,17 @@ export function startSmsWorker() {
         });
         if (code === "DEVICE_OFFLINE") return { skipped: "DEVICE_OFFLINE" };
         const latest = await prisma.campaignRecipient.findUnique({ where: { id: data.recipientId } });
-        if (shouldRetry(code, latest?.attempts ?? job.attemptsMade + 1, config.smsJobAttempts)) {
-          await job.moveToDelayed(Date.now() + 60_000, token);
+        const attempts = latest?.attempts ?? job.attemptsMade + 1;
+        if (shouldRetry(code, attempts, MAX_SEND_ATTEMPTS)) {
+          await job.moveToDelayed(Date.now() + RETRY_DELAY_MS, token);
           throw new DelayedError();
         }
-        throw err;
+        await prisma.campaignRecipient.updateMany({
+          where: { id: data.recipientId, status: { in: ["SENDING", "QUEUED", "FAILED"] } },
+          data: { status: "FAILED", errorCode: "SMS_FAILED", errorDetail: "abandon apres 2 essais" },
+        });
+        await maybeCompleteCampaign(data.campaignId);
+        return { failed: true, skipped: true };
       }
     },
     {
