@@ -115,7 +115,22 @@ export function isSeanceOfferteSms(input: { campaignName?: string | null; messag
   );
 }
 
-/** Seuls SMS autorisés : relance inscription + séance offerte + invités offre duo. Hexagone / concours coupés. */
+/** Lien boutique / site envoyé par le standard téléphonique (David). */
+export function isPhoneBotLinkSms(input: { campaignName?: string | null; message?: string | null }): boolean {
+  const name = foldSms(input.campaignName || "");
+  const message = foldSms(input.message || "");
+  if (name.includes("phone-bot") || name.includes("phone bot")) return true;
+  if (!message.includes("boxingcenter.fr")) return false;
+  return (
+    message.includes("inscrivez") ||
+    message.includes("inscription") ||
+    message.includes("activites") ||
+    message.includes("plannings") ||
+    message.includes("boutique")
+  );
+}
+
+/** Seuls SMS autorisés : relance inscription + séance offerte + invités offre duo + standard tel. Hexagone / concours coupés. */
 export function isAllowedOutboundSms(input: { campaignName?: string | null; message?: string | null }): boolean {
   if (isContestConfirmationSms(input.message) || isHexagoneSms(input)) return false;
   if (isInscriptionNudgeSms(input.message)) return true;
@@ -123,5 +138,6 @@ export function isAllowedOutboundSms(input: { campaignName?: string | null; mess
   if (isOffreDuoReferralSms(input.message)) return true;
   if (/offre-duo-ami/i.test(input.campaignName || "")) return true;
   if (isSeanceOfferteSms(input)) return true;
+  if (isPhoneBotLinkSms(input)) return true;
   return false;
 }

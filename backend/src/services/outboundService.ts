@@ -49,7 +49,12 @@ export async function sendDirectMessage(input: {
   }
   if (
     !isAllowedOutboundSms({
-      campaignName: input.source === "seance-offerte" ? "seance-offerte" : SYSTEM_OUTBOUND_NAME,
+      campaignName:
+        input.source === "seance-offerte"
+          ? "seance-offerte"
+          : input.source === "phone-bot"
+            ? "phone-bot"
+            : SYSTEM_OUTBOUND_NAME,
       message: text,
     })
   ) {

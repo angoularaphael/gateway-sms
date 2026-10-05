@@ -360,6 +360,18 @@ describe("campagnes et queue", () => {
         message: "Salut Marie, C'est David. Je t'offre ta seance d'essai. https://seance-offerte.boxingcenter.fr/?src=sms",
       }),
     ).toBe(true);
+    expect(
+      isAllowedOutboundSms({
+        campaignName: "phone-bot",
+        message: "Boxing Center — inscrivez-vous ici : https://boutique.boxingcenter.fr/",
+      }),
+    ).toBe(true);
+    expect(
+      isAllowedOutboundSms({
+        campaignName: "Messages logiciels",
+        message: "Boxing Center — activites et plannings : https://www.boxingcenter.fr/",
+      }),
+    ).toBe(true);
   });
 });
 
