@@ -78,7 +78,7 @@ model SimLine {
   phoneNumber   String?
   status        SimStatus @default(UNKNOWN)
   dailyLimit    Int       @default(500)
-  ratePerMinute Int       @default(4)
+  ratePerMinute Int       @default(6)
   enabled       Boolean   @default(true)
   lastUsedAt    DateTime?
   sentToday     Int       @default(0)

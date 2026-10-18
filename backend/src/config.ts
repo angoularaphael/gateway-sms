@@ -35,7 +35,7 @@ export const config = {
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? "7d",
   deviceOfflineAfterSeconds: integer("DEVICE_OFFLINE_AFTER_SECONDS", 90),
   defaultDailyLimit: integer("DEFAULT_DAILY_LIMIT", 600),
-  defaultRatePerMinute: integer("DEFAULT_RATE_PER_MINUTE", 1),
+  defaultRatePerMinute: integer("DEFAULT_RATE_PER_MINUTE", 6),
   smsJobAttempts: integer("SMS_JOB_ATTEMPTS", 3),
   smsJobBackoffMs: integer("SMS_JOB_BACKOFF_MS", 60_000),
   outboundApiSecret: process.env.OUTBOUND_API_SECRET?.trim() || "",
